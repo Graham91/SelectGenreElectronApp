@@ -16,6 +16,8 @@ Users can bulk-select unwanted genres and remove them from entire music collecti
 ### **2. Intelligent File Renaming**
 Advanced template-based file renaming system that searches song lyrics for specific text patterns and applies custom naming templates. Perfect for organizing large music collections by lyrical content, themes, or organizing compilation albums.
 
+**NEW: Enhanced Multi-Search Support** - Each rule now supports multiple lyric search strings, allowing songs with slight lyrical variations to be captured under the same rule while maintaining consistent numbering within that rule.
+
 ## 🏗️ **Application Architecture**
 
 ### **Technology Stack**
@@ -70,12 +72,14 @@ SelectGenreApp/
 ### **Tab 3: 🎵 Naming via Lyrics**
 - **Purpose**: Advanced file renaming based on lyric content search
 - **Features**:
-  - **Lyric Search Rules**: Define text patterns to search for in song lyrics
+  - **Multiple Lyric Search Rules**: Define multiple text patterns to search for within a single rule
   - **Template System**: Custom naming templates with variable substitution
   - **Rule Management**: Add, remove, expand/collapse rule configurations
-  - **Save/Load Rules**: Export and import rule sets as JSON files
+  - **Smart Conflict Resolution**: Automatically finds next available number in sequence for filename conflicts
+  - **Save/Load Rules**: Export and import rule sets as JSON files with backward compatibility
   - **Preview Changes**: See exactly what files will be renamed before applying
   - **Batch Processing**: Apply all rules and rename multiple files at once
+  - **Enhanced UI**: Rules stay expanded during editing, with real-time preview updates
 
 ## 🔧 **Core Functionality**
 
@@ -154,14 +158,33 @@ Result: "rap; hip-hop; bass" // Normal removal
 
 ## 🎵 **Naming via Lyrics System**
 
-### **6. Lyric Search & Template Engine**
-The application features a sophisticated file renaming system based on lyric content analysis:
+### **6. Enhanced Lyric Search & Template Engine**
+The application features a sophisticated file renaming system based on lyric content analysis with advanced multi-search capabilities:
 
-#### **Rule-Based Matching**
-- **Lyric Search**: Define text patterns to search for within song lyrics
+#### **Multiple Search Patterns per Rule**
+- **Multi-Search Support**: Each rule can contain multiple lyric search strings
+- **OR Logic**: Songs matching ANY of the search patterns within a rule are processed
+- **Consistent Numbering**: All matches within a rule maintain sequential numbering
 - **Case-Insensitive Matching**: Flexible text matching regardless of capitalization
-- **Multiple Rules**: Create unlimited naming rules for different lyric patterns
 - **Rule Priority**: Rules are processed in order, first match wins
+
+#### **Use Case Example**
+```javascript
+Rule #1: Love Songs Compilation
+Lyric Searches: 
+  - "I love you"
+  - "you are my everything" 
+  - "forever and always"
+  
+// All songs with any of these lyrics get numbered 001, 002, 003... 
+// under the same rule, maintaining consistency
+```
+
+#### **Smart Conflict Resolution**
+- **Automatic Sequence Detection**: Scans existing files to find used numbers
+- **Next Available Assignment**: Automatically assigns next number in sequence
+- **No Ugly Suffixes**: Maintains clean numbering (087, 088, 089) instead of (1), (2), (3)
+- **Prevents Overwrites**: Safe handling of existing filenames
 
 #### **Template Variables**
 ```javascript
@@ -187,25 +210,49 @@ The application features a sophisticated file renaming system based on lyric con
 ```
 
 ### **7. Rule Management & Persistence**
-- **Collapsible Interface**: Rules show preview when collapsed, full form when expanded
+- **Enhanced UI Experience**: Rules stay expanded during editing operations
+- **Real-time Preview Updates**: Lyric search preview text updates as you type
+- **Multi-Search Interface**: Add/remove individual search strings within rules
 - **JSON Export/Import**: Save rule sets to `.json` files for reuse across projects
+- **Backward Compatibility**: Seamlessly loads old single-search rule files
 - **Rule Preview**: See exactly which files match before applying changes
 - **Batch Operations**: Apply all rules simultaneously with comprehensive preview
 - **Error Handling**: Graceful failure with detailed error reporting
 
-#### **JSON Rule Format**
+#### **Enhanced JSON Rule Format**
 ```json
 {
-  "version": "1.0",
-  "timestamp": "2025-12-20T10:30:00.000Z",
+  "version": "2.0",
+  "timestamp": "2025-12-21T10:30:00.000Z",
   "rulesCount": 2,
   "rules": [
     {
       "id": 1,
-      "lyricSearch": "I'd rather be the engine", 
+      "lyricSearches": [
+        "I'd rather be the engine",
+        "driving down the highway",
+        "road trip anthem"
+      ],
       "albumTemplate": "Driving Songs Collection",
       "songTemplate": "{title} - {artist}",
-      "artistTemplate": "Various Artists",
+      "artistTemplate": "Various Artists", 
+      "filenameTemplate": "{number:03d} - {artist} - {title}",
+      "startNumber": 1
+    }
+  ]
+}
+  "rulesCount": 2,
+  "rules": [
+    {
+      "id": 1,
+      "lyricSearches": [
+        "I'd rather be the engine",
+        "driving down the highway",
+        "road trip anthem"
+      ],
+      "albumTemplate": "Driving Songs Collection",
+      "songTemplate": "{title} - {artist}",
+      "artistTemplate": "Various Artists", 
       "filenameTemplate": "{number:03d} - {artist} - {title}",
       "startNumber": 1
     }
@@ -213,13 +260,29 @@ The application features a sophisticated file renaming system based on lyric con
 }
 ```
 
-### **8. Naming Process Flow**
-1. **Rule Creation**: Define lyric search text and naming templates
-2. **Preview Generation**: See which files match and preview new names
-3. **Batch Application**: Apply all rules with atomic file operations  
-4. **Metadata Updates**: Update ID3 tags with new artist, title, album information
-5. **File Renaming**: Rename physical files according to filename templates
-6. **Data Refresh**: Reload all metadata to reflect changes
+### **8. Enhanced Naming Process Flow**
+1. **Rule Creation**: Define multiple lyric search texts and naming templates per rule
+2. **Multi-Search Matching**: Songs matching ANY search string in a rule are processed together
+3. **Smart Conflict Resolution**: System automatically finds next available number in sequence
+4. **Preview Generation**: See which files match and preview new names with conflict resolution
+5. **Batch Application**: Apply all rules with atomic file operations and intelligent numbering
+6. **Metadata Updates**: Update ID3 tags with new artist, title, album information
+7. **File Renaming**: Rename physical files with automatic conflict resolution
+8. **Data Refresh**: Reload all metadata to reflect changes
+
+#### **Conflict Resolution Examples**
+```javascript
+// Existing files: 001-085 are already used
+// New song matches rule → automatically gets 086
+
+// Later, another matching song → automatically gets 087
+// No manual tracking needed!
+
+// Works great for:
+// - Re-running rules after changes
+// - Adding new songs with similar lyrics  
+// - Organizing compilation albums
+```
 
 ## 📊 **Performance Optimizations**
 
@@ -232,9 +295,11 @@ The application features a sophisticated file renaming system based on lyric con
 
 ### **User Experience**
 - **Progress Indicators**: Loading states during operations
-- **Real-time Feedback**: Statistics update as selections change
+- **Real-time Feedback**: Statistics update as selections change, lyric previews update as you type
 - **Visual Feedback**: Hover effects, button states, highlighting
-- **Error Handling**: Graceful failure with user-friendly messages
+- **Enhanced UI Stability**: Custom alert system prevents Electron input focus issues
+- **Persistent UI State**: Rules stay expanded during editing operations
+- **Error Handling**: Graceful failure with user-friendly custom modals
 
 ## 🔌 **IPC Communication**
 
@@ -262,10 +327,10 @@ The application features a sophisticated file renaming system based on lyric con
   albumArt: "data:image/jpeg;base64,..." // Base64 encoded image
 }
 
-// Naming Rule Object
+// Enhanced Naming Rule Object
 {
   id: 1,
-  lyricSearch: "specific lyrics to find",
+  lyricSearches: ["specific lyrics to find", "alternative lyrics", "another variation"],
   albumTemplate: "{genre} Collection", 
   songTemplate: "{title} - {artist}",
   artistTemplate: "Various Artists",
@@ -303,7 +368,17 @@ The application features a sophisticated file renaming system based on lyric con
 3. **Edge Cases**: Files with 1, 2, 3+ genres and various removal scenarios
 4. **Error Handling**: Corrupted files, permission issues, disk space
 
-## 🚀 **Future Enhancement Areas**
+## 🚀 **Recent Enhancements (v2.1)**
+
+### **Completed Features**
+- ✅ **Multiple Lyric Search Strings**: Each rule now supports multiple search patterns
+- ✅ **Smart Filename Conflict Resolution**: Automatic sequence detection and numbering
+- ✅ **Enhanced UI Experience**: Rules stay expanded, real-time preview updates
+- ✅ **Custom Alert System**: Prevents Electron input focus issues
+- ✅ **Backward Compatibility**: Seamless loading of old single-search rule files
+- ✅ **Improved Error Handling**: User-friendly custom modal dialogs
+
+### **Future Enhancement Areas**
 
 ### **Planned Features**
 - [ ] **Advanced Lyric Matching**: Regex support, fuzzy matching, multi-phrase search
@@ -359,10 +434,17 @@ The application features a sophisticated file renaming system based on lyric con
 - **Template processing and file renaming operations are I/O intensive**
 
 ### **Known Issues & Workarounds**  
-- **Electron Focus Issue**: Alert dialogs can cause input focus problems - avoided in current version
-- **Large Lyrics**: Very long lyrics content may slow search operations
+- **Lyrics Content Requirements**: **Lyrics must be embedded in ID3 tags** for search functionality to work
+- **Template Processing**: Complex template patterns may require testing with preview function first
+- **Large Collections**: **Multi-search operations are CPU-intensive** on very large collections (5000+ files)
 - **Special Characters**: Template variables handle most Unicode, but filesystem limitations apply
 - **File Permissions**: Ensure write permissions for both metadata updates and file renaming
+
+### **Recent Fixes**
+- ✅ **Fixed**: Electron input focus issues (replaced native alerts with custom modals)
+- ✅ **Fixed**: Rules collapsing when adding lyric searches (persistent expansion state)
+- ✅ **Fixed**: Preview text not updating for new rules (enhanced refresh system)
+- ✅ **Fixed**: Filename conflicts causing rename failures (smart sequence detection)
 
 ### **Operating System Compatibility**
 - Built with Electron - supports Windows, macOS, Linux
@@ -397,6 +479,11 @@ node generate-test-data.js  # Create test MP3 files
 
 ---
 
-**Last Updated**: December 2025  
-**Version**: 2.0.0 - Major update with Naming via Lyrics functionality  
+**Last Updated**: December 21, 2025  
+**Version**: 2.1.0 - Enhanced Multi-Search Support with Smart Conflict Resolution  
 **Author**: Built for AI-generated music cleanup workflows and advanced metadata management
+
+### **Version History**
+- **v2.1.0** (Dec 2025): Multiple lyric searches per rule, smart filename conflict resolution, enhanced UI stability
+- **v2.0.0** (Dec 2025): Major update with Naming via Lyrics functionality  
+- **v1.0.0** (Initial): Core MP3 metadata reading and genre cleaning functionality

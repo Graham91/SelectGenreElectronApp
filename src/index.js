@@ -163,14 +163,32 @@ ipcMain.handle('preview-naming-changes', async (event, namingRules, filesData) =
     };
     
     for (const rule of namingRules) {
-      if (!rule.lyricSearch || rule.lyricSearch.trim() === '') continue;
+      // Support both old format (lyricSearch) and new format (lyricSearches)
+      let lyricSearches = rule.lyricSearches || [];
+      if (rule.lyricSearch && !lyricSearches.length) {
+        lyricSearches = [rule.lyricSearch]; // Backward compatibility
+      }
+      
+      // Skip rule if no valid searches
+      const validSearches = lyricSearches.filter(search => search && search.trim() !== '');
+      if (validSearches.length === 0) continue;
       
       let matchCount = 0;
       
       for (const file of filesData) {
-        // Check if lyrics contain the search text
+        // Check if lyrics contain ANY of the search texts
         const lyrics = file.lyrics || '';
-        if (lyrics.toLowerCase().includes(rule.lyricSearch.toLowerCase())) {
+        const lyricsLower = lyrics.toLowerCase();
+        
+        let foundMatch = false;
+        for (const searchText of validSearches) {
+          if (lyricsLower.includes(searchText.toLowerCase())) {
+            foundMatch = true;
+            break;
+          }
+        }
+        
+        if (foundMatch) {
           matchCount++;
           
           // Generate templates with variables
@@ -223,13 +241,32 @@ ipcMain.handle('apply-naming-changes', async (event, namingRules, filesData) => 
     };
     
     for (const rule of namingRules) {
-      if (!rule.lyricSearch || rule.lyricSearch.trim() === '') continue;
+      // Support both old format (lyricSearch) and new format (lyricSearches)
+      let lyricSearches = rule.lyricSearches || [];
+      if (rule.lyricSearch && !lyricSearches.length) {
+        lyricSearches = [rule.lyricSearch]; // Backward compatibility
+      }
+      
+      // Skip rule if no valid searches
+      const validSearches = lyricSearches.filter(search => search && search.trim() !== '');
+      if (validSearches.length === 0) continue;
       
       let matchCount = 0;
       
       for (const file of filesData) {
+        // Check if lyrics contain ANY of the search texts
         const lyrics = file.lyrics || '';
-        if (lyrics.toLowerCase().includes(rule.lyricSearch.toLowerCase())) {
+        const lyricsLower = lyrics.toLowerCase();
+        
+        let foundMatch = false;
+        for (const searchText of validSearches) {
+          if (lyricsLower.includes(searchText.toLowerCase())) {
+            foundMatch = true;
+            break;
+          }
+        }
+        
+        if (foundMatch) {
           matchCount++;
           
           const variables = {
@@ -244,12 +281,20 @@ ipcMain.handle('apply-naming-changes', async (event, namingRules, filesData) => 
           const newArtist = processTemplate(rule.artistTemplate, variables);
           const newTitle = processTemplate(rule.songTemplate, variables);
           const newAlbum = processTemplate(rule.albumTemplate, variables);
-          const newFilename = processTemplate(rule.filenameTemplate, variables) + '.mp3';
+          
+          // Only generate new filename if template is provided
+          let newFilename = file.filename; // Default to original
+          if (rule.filenameTemplate && rule.filenameTemplate.trim() !== '') {
+            const processedTemplate = processTemplate(rule.filenameTemplate, variables);
+            if (processedTemplate && processedTemplate.trim() !== '') {
+              newFilename = processedTemplate + '.mp3';
+            }
+          }
           
           previewResult.matches.push({
             originalFilename: file.filename,
             originalPath: file.filePath,
-            newFilename: newFilename || file.filename,
+            newFilename: newFilename,
             newArtist: newArtist || file.artist,
             newTitle: newTitle || file.title,
             newAlbum: newAlbum || file.album,
@@ -327,20 +372,59 @@ ipcMain.handle('apply-naming-changes', async (event, namingRules, filesData) => 
         // Rename file if filename template was provided
         if (match.newFilename !== match.originalFilename) {
           const dir = path.dirname(match.originalPath);
-          const newPath = path.join(dir, match.newFilename);
+          let newPath = path.join(dir, match.newFilename);
+          let finalFilename = match.newFilename;
           
-          // Make sure new filename doesn't exist
-          if (!fs.existsSync(newPath)) {
-            try {
-              fs.renameSync(match.originalPath, newPath);
-            } catch (renameError) {
-              console.error(`Error renaming ${match.originalFilename}:`, renameError);
-              // Metadata was updated successfully, but rename failed
+          // Handle filename conflicts by finding next available number in sequence
+          if (fs.existsSync(newPath)) {
+            // Check if the filename template uses numbering
+            const rule = namingRules.find(r => r.id === match.ruleId);
+            if (rule && rule.filenameTemplate && rule.filenameTemplate.includes('{number')) {
+              // Extract the base pattern from the filename (everything except the number)
+              const originalNumber = match.variables.number;
+              
+              // Find all existing files in directory
+              const existingFiles = fs.readdirSync(dir).filter(f => f.endsWith('.mp3'));
+              
+              // Extract numbers from files that match our pattern
+              const usedNumbers = new Set();
+              const nameWithoutExt = path.parse(finalFilename).name;
+              
+              // Create regex to match the pattern - replace the number with a capture group
+              let pattern = nameWithoutExt.replace(/\d+/, '(\\d+)');
+              pattern = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // Escape special regex chars
+              pattern = pattern.replace('\\(\\\\d\\+\\)', '(\\d+)'); // Restore the number capture group
+              const regex = new RegExp(`^${pattern}$`);
+              
+              existingFiles.forEach(file => {
+                const fileNameOnly = path.parse(file).name;
+                const match = fileNameOnly.match(regex);
+                if (match && match[1]) {
+                  usedNumbers.add(parseInt(match[1]));
+                }
+              });
+              
+              // Find the next available number
+              let nextNumber = rule.startNumber;
+              while (usedNumbers.has(nextNumber)) {
+                nextNumber++;
+              }
+              
+              // Regenerate filename with the next available number
+              const newVariables = { ...match.variables, number: nextNumber };
+              const processedTemplate = processTemplate(rule.filenameTemplate, newVariables);
+              finalFilename = processedTemplate + '.mp3';
+              newPath = path.join(dir, finalFilename);
+              
+              console.log(`Filename conflict resolved: ${match.newFilename} -> ${finalFilename}`);
+            } else {
+              // No numbering in template, skip rename to avoid conflict
+              console.warn(`Target filename already exists: ${match.newFilename}`);
               results.push({
                 filename: match.originalFilename,
                 success: true,
-                warning: 'Metadata updated but file rename failed: ' + renameError.message,
-                newFilename: match.originalFilename, // Keep original name
+                warning: 'Metadata updated but file rename skipped - target filename already exists',
+                newFilename: match.originalFilename,
                 changes: {
                   artist: match.newArtist,
                   title: match.newTitle,
@@ -350,13 +434,20 @@ ipcMain.handle('apply-naming-changes', async (event, namingRules, filesData) => 
               updated++;
               continue;
             }
-          } else {
-            console.warn(`Target filename already exists: ${match.newFilename}`);
+          }
+          
+          try {
+            fs.renameSync(match.originalPath, newPath);
+            // Update the result with the actual final filename used
+            match.newFilename = finalFilename;
+          } catch (renameError) {
+            console.error(`Error renaming ${match.originalFilename}:`, renameError);
+            // Metadata was updated successfully, but rename failed
             results.push({
               filename: match.originalFilename,
               success: true,
-              warning: 'Metadata updated but file rename skipped - target filename already exists',
-              newFilename: match.originalFilename,
+              warning: 'Metadata updated but file rename failed: ' + renameError.message,
+              newFilename: match.originalFilename, // Keep original name
               changes: {
                 artist: match.newArtist,
                 title: match.newTitle,

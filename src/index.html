@@ -140,7 +140,55 @@
       </div>
     </div>
     
+    <!-- Custom Alert Modal -->
+    <div id="customAlertOverlay" class="alert-overlay" style="display: none;">
+      <div class="alert-modal">
+        <div class="alert-header">
+          <h3 id="alertTitle">Alert</h3>
+        </div>
+        <div class="alert-content">
+          <p id="alertMessage"></p>
+        </div>
+        <div class="alert-actions">
+          <button id="alertOkButton" class="btn primary-btn">OK</button>
+        </div>
+      </div>
+    </div>
+    
     <script>
+      // Custom Alert Function - replaces native alert() to prevent Electron focus issues
+      window.customAlert = function(message, title = 'Alert') {
+        const overlay = document.getElementById('customAlertOverlay');
+        const titleElement = document.getElementById('alertTitle');
+        const messageElement = document.getElementById('alertMessage');
+        const okButton = document.getElementById('alertOkButton');
+        
+        titleElement.textContent = title;
+        messageElement.textContent = message;
+        overlay.style.display = 'flex';
+        
+        // Focus the OK button for keyboard accessibility
+        setTimeout(() => okButton.focus(), 100);
+        
+        return new Promise((resolve) => {
+          const closeAlert = () => {
+            overlay.style.display = 'none';
+            okButton.removeEventListener('click', closeAlert);
+            document.removeEventListener('keydown', handleKeydown);
+            resolve();
+          };
+          
+          const handleKeydown = (e) => {
+            if (e.key === 'Enter' || e.key === 'Escape') {
+              closeAlert();
+            }
+          };
+          
+          okButton.addEventListener('click', closeAlert);
+          document.addEventListener('keydown', handleKeydown);
+        });
+      };
+      
       let mp3Data = [];
       let allGenres = new Set();
       let genresToRemove = new Set();
@@ -243,7 +291,7 @@
             }
           } catch (error) {
             console.error('Error:', error);
-            alert('Error reading MP3 files: ' + error.message);
+            customAlert('Error reading MP3 files: ' + error.message);
             loading.classList.add('hidden');
           }
         });
@@ -474,7 +522,7 @@
             const successful = results.filter(r => r.success).length;
             const failed = results.filter(r => !r.success).length;
             
-            alert(`Genre update complete!\nSuccessful: ${successful}\nFailed: ${failed}`);
+            customAlert(`Genre update complete!\nSuccessful: ${successful}\nFailed: ${failed}`, 'Update Complete');
             
             if (successful > 0) {
               // Refresh the data
@@ -495,7 +543,7 @@
             
           } catch (error) {
             console.error('Error applying changes:', error);
-            alert('Error applying changes: ' + error.message);
+            customAlert('Error applying changes: ' + error.message, 'Error');
             loading.classList.add('hidden');
           }
         }
@@ -737,12 +785,13 @@
       // Naming via Lyrics functionality
       let namingRules = [];
       let namingRuleCounter = 0;
+      let expandedRules = new Set(); // Track which rules are expanded
 
       window.addNamingRule = function() {
         const ruleId = ++namingRuleCounter;
         const rule = {
           id: ruleId,
-          lyricSearch: '',
+          lyricSearches: [''], // Array of lyric search strings
           albumTemplate: '',
           songTemplate: '',
           artistTemplate: '',
@@ -751,6 +800,7 @@
         };
         
         namingRules.push(rule);
+        expandedRules.add(ruleId); // Expand new rules by default
         renderNamingRules();
       };
 
@@ -765,8 +815,8 @@
           rule[field] = value;
           console.log(`Updated rule ${ruleId} ${field} to:`, value); // Debug logging
           
-          // If updating lyricSearch, update the preview immediately
-          if (field === 'lyricSearch') {
+          // If updating lyricSearches, update the preview immediately
+          if (field.startsWith('lyricSearch')) {
             window.updateRulePreviewText(ruleId);
           }
         } else {
@@ -777,12 +827,19 @@
       window.updateRulePreviewText = function(ruleId) {
         const rule = namingRules.find(r => r.id === ruleId);
         if (rule) {
-          const previewElement = document.querySelector(`[data-rule-id="${ruleId}"] .rule-lyrics-preview`);
+          const previewElement = document.getElementById(`rule-lyrics-preview-${ruleId}`);
           if (previewElement) {
-            const hasLyrics = rule.lyricSearch && rule.lyricSearch.trim() !== '';
-            previewElement.innerHTML = hasLyrics ? 
-              `"${rule.lyricSearch}"` : 
-              '<em>No lyrics specified</em>';
+            const validSearches = rule.lyricSearches.filter(search => search && search.trim() !== '');
+            const hasLyrics = validSearches.length > 0;
+            if (hasLyrics) {
+              if (validSearches.length === 1) {
+                previewElement.innerHTML = `"${validSearches[0]}"`;
+              } else {
+                previewElement.innerHTML = `${validSearches.length} searches: "${validSearches[0]}" + ${validSearches.length - 1} more`;
+              }
+            } else {
+              previewElement.innerHTML = '<em>No lyrics specified</em>';
+            }
           }
         }
       };
@@ -793,8 +850,18 @@
 
         let html = '';
         namingRules.forEach(rule => {
-          const hasLyrics = rule.lyricSearch && rule.lyricSearch.trim() !== '';
-          const previewText = hasLyrics ? rule.lyricSearch : 'No lyrics specified';
+          const validSearches = rule.lyricSearches.filter(search => search && search.trim() !== '');
+          const hasLyrics = validSearches.length > 0;
+          let previewText;
+          if (hasLyrics) {
+            if (validSearches.length === 1) {
+              previewText = validSearches[0];
+            } else {
+              previewText = `${validSearches.length} searches: "${validSearches[0]}" + ${validSearches.length - 1} more`;
+            }
+          } else {
+            previewText = 'No lyrics specified';
+          }
           
           html += '<div class="naming-rule" data-rule-id="' + rule.id + '">';
           
@@ -803,7 +870,7 @@
           html += '    <div class="rule-preview-content">';
           html += '      <div class="rule-preview-info">';
           html += '        <span class="rule-number">Rule #' + rule.id + '</span>';
-          html += '        <span class="rule-lyrics-preview">' + (hasLyrics ? '"' + previewText + '"' : '<em>No lyrics specified</em>') + '</span>';
+          html += '        <span class="rule-lyrics-preview" id="rule-lyrics-preview-' + rule.id + '">' + (hasLyrics ? '"' + previewText + '"' : '<em>No lyrics specified</em>') + '</span>';
           html += '      </div>';
           html += '      <div class="rule-preview-actions">';
           html += '        <button class="btn-small tertiary-btn" onclick="event.stopPropagation(); removeNamingRule(' + rule.id + ')">Remove</button>';
@@ -815,9 +882,23 @@
           // Expandable content (initially hidden)
           html += '  <div class="naming-rule-content" id="rule-content-' + rule.id + '" style="display: none;">';
           html += '    <div class="naming-input-group">';
-          html += '      <label>Lyric Search Text:</label>';
-          html += '      <input type="text" placeholder="Enter lyrics to search for..." data-rule-id="' + rule.id + '" data-field="lyricSearch">';
-          html += '      <small>Search for this text in song lyrics</small>';
+          html += '      <label>Lyric Search Texts:</label>';
+          html += '      <div id="lyric-searches-' + rule.id + '" class="lyric-searches-container">';
+          
+          // Render all lyric search inputs
+          rule.lyricSearches.forEach((search, index) => {
+            html += '        <div class="lyric-search-row">';
+            html += '          <input type="text" placeholder="Enter lyrics to search for..." value="' + (search || '') + '" ';
+            html += '                 data-rule-id="' + rule.id + '" data-field="lyricSearch" data-index="' + index + '">';
+            if (rule.lyricSearches.length > 1) {
+              html += '          <button type="button" onclick="removeLyricSearch(' + rule.id + ', ' + index + ')" class="remove-lyric-btn">✖</button>';
+            }
+            html += '        </div>';
+          });
+          
+          html += '      </div>';
+          html += '      <button type="button" onclick="addLyricSearch(' + rule.id + ')" class="add-lyric-btn">+ Add Another Search</button>';
+          html += '      <small>Songs matching ANY of these lyric searches will be processed by this rule</small>';
           html += '    </div>';
           html += '    <div class="naming-templates">';
           html += '      <div class="template-row">';
@@ -860,6 +941,23 @@
         
         console.log('HTML set, about to add event listeners...'); // Debug
         
+        // Restore expanded states after HTML is rendered
+        setTimeout(() => {
+          expandedRules.forEach(ruleId => {
+            const content = document.getElementById('rule-content-' + ruleId);
+            const icon = document.getElementById('expand-icon-' + ruleId);
+            if (content && icon) {
+              content.style.display = 'block';
+              icon.textContent = '▲';
+            }
+          });
+          
+          // Update all preview texts to ensure they display properly
+          namingRules.forEach(rule => {
+            window.updateRulePreviewText(rule.id);
+          });
+        }, 5);
+        
         // Set input values and add event listeners
         setTimeout(() => {
           const inputs = container.querySelectorAll('input[data-rule-id]');
@@ -870,8 +968,13 @@
             const rule = namingRules.find(r => r.id === ruleId);
             
             // Set the value directly via JavaScript (no HTML escaping needed)
-            if (rule && rule[field] !== undefined) {
-              input.value = rule[field];
+            if (rule) {
+              if (field === 'lyricSearch') {
+                // Handle lyric search inputs - value is already set in HTML
+                // No need to set it again here since it's handled in the forEach loop above
+              } else if (rule[field] !== undefined) {
+                input.value = rule[field];
+              }
             }
             
             // Add event listeners
@@ -891,17 +994,46 @@
           value = parseInt(value) || 1;
         }
         
-        window.updateNamingRule(ruleId, field, value);
+        // Handle lyric search inputs specifically
+        if (field === 'lyricSearch') {
+          const index = parseInt(event.target.getAttribute('data-index'));
+          const rule = namingRules.find(r => r.id === ruleId);
+          if (rule) {
+            rule.lyricSearches[index] = value;
+            window.updateRulePreviewText(ruleId);
+          }
+        } else {
+          window.updateNamingRule(ruleId, field, value);
+        }
       }
+
+      // Functions for managing multiple lyric searches
+      window.addLyricSearch = function(ruleId) {
+        const rule = namingRules.find(r => r.id === ruleId);
+        if (rule) {
+          rule.lyricSearches.push('');
+          expandedRules.add(ruleId); // Ensure rule stays expanded
+          renderNamingRules();
+        }
+      };
+
+      window.removeLyricSearch = function(ruleId, index) {
+        const rule = namingRules.find(r => r.id === ruleId);
+        if (rule && rule.lyricSearches.length > 1) {
+          rule.lyricSearches.splice(index, 1);
+          expandedRules.add(ruleId); // Ensure rule stays expanded
+          renderNamingRules();
+        }
+      };
 
       window.previewNamingChanges = function() {
         if (!mp3Data || mp3Data.length === 0) {
-          alert('Please select a folder and load MP3 files first.');
+          customAlert('Please select a folder and load MP3 files first.');
           return;
         }
         
         if (namingRules.length === 0) {
-          alert('Please add at least one naming rule.');
+          customAlert('Please add at least one naming rule.');
           return;
         }
         
@@ -909,13 +1041,13 @@
           displayNamingPreview(result);
         }).catch(error => {
           console.error('Error previewing naming changes:', error);
-          alert('Error previewing changes: ' + error.message);
+          customAlert('Error previewing changes: ' + error.message, 'Error');
         });
       };
 
       window.applyNamingChanges = function() {
         if (!mp3Data || mp3Data.length === 0) {
-          alert('Please select a folder and load MP3 files first.');
+          customAlert('Please select a folder and load MP3 files first.');
           return;
         }
         
@@ -929,7 +1061,7 @@
         }
         
         window.electronAPI.applyNamingChanges(namingRules, mp3Data).then(result => {
-          alert('Successfully updated ' + result.updated + ' files!');
+          customAlert('Successfully updated ' + result.updated + ' files!', 'Success');
           // Reload the file data
           const folderPath = document.getElementById('selectedPath').textContent;
           window.electronAPI.readMP3Metadata(folderPath).then(files => {
@@ -944,7 +1076,7 @@
           });
         }).catch(error => {
           console.error('Error applying naming changes:', error);
-          alert('Error applying changes: ' + error.message);
+          customAlert('Error applying changes: ' + error.message, 'Error');
         });
       };
 
@@ -964,9 +1096,11 @@
           if (content.style.display === 'none') {
             content.style.display = 'block';
             icon.textContent = '▲';
+            expandedRules.add(ruleId); // Track expansion
           } else {
             content.style.display = 'none';
             icon.textContent = '▼';
+            expandedRules.delete(ruleId); // Track collapse
           }
         }
       };
@@ -984,17 +1118,17 @@
       };
       window.saveNamingRules = function() {
         if (namingRules.length === 0) {
-          alert('No naming rules to save. Please add some rules first.');
+          customAlert('No naming rules to save. Please add some rules first.');
           return;
         }
 
         const rulesData = {
-          version: '1.0',
+          version: '2.0', // Updated version to reflect multiple lyric searches
           timestamp: new Date().toISOString(),
           rulesCount: namingRules.length,
           rules: namingRules.map(rule => ({
             id: rule.id,
-            lyricSearch: rule.lyricSearch,
+            lyricSearches: rule.lyricSearches || [], // Use array instead of single string
             albumTemplate: rule.albumTemplate,
             songTemplate: rule.songTemplate,
             artistTemplate: rule.artistTemplate,
@@ -1005,11 +1139,11 @@
 
         window.electronAPI.saveNamingRules(rulesData).then(result => {
           if (result.success) {
-            alert('Naming rules saved successfully to: ' + result.filePath);
+            customAlert('Naming rules saved successfully to: ' + result.filePath, 'Saved');
           }
         }).catch(error => {
           console.error('Error saving naming rules:', error);
-          alert('Error saving rules: ' + error.message);
+          customAlert('Error saving rules: ' + error.message, 'Error');
         });
       };
 
@@ -1020,7 +1154,7 @@
             
             // Validate the loaded data
             if (!data.rules || !Array.isArray(data.rules)) {
-              alert('Invalid rules file format.');
+              customAlert('Invalid rules file format.', 'Invalid File');
               return;
             }
 
@@ -1044,13 +1178,17 @@
               data.rules.forEach(ruleData => {
                 const newRule = {
                   id: ++namingRuleCounter,
-                  lyricSearch: ruleData.lyricSearch || '',
+                  lyricSearches: ruleData.lyricSearches || [ruleData.lyricSearch || ''], // Support both old and new format
                   albumTemplate: ruleData.albumTemplate || '',
                   songTemplate: ruleData.songTemplate || '',
                   artistTemplate: ruleData.artistTemplate || '',
                   filenameTemplate: ruleData.filenameTemplate || '',
                   startNumber: ruleData.startNumber || 1
                 };
+                // Ensure lyricSearches is always an array with at least one element
+                if (!newRule.lyricSearches.length) {
+                  newRule.lyricSearches = [''];
+                }
                 namingRules.push(newRule);
                 console.log('Loaded rule:', newRule); // Debug logging
               });
@@ -1079,7 +1217,7 @@
           }
         }).catch(error => {
           console.error('Error loading naming rules:', error);
-          alert('Error loading rules: ' + error.message);
+          customAlert('Error loading rules: ' + error.message, 'Error');
         });
       };
       function displayNamingPreview(results) {
