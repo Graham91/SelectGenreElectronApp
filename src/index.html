@@ -1,0 +1,1120 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;">
+    <title>MP3 Genre Cleaner</title>
+    <link rel="stylesheet" href="index.css" />
+  </head>
+  <body>
+    <div class="container">
+      <h1>🎵 Suno Metadata Handler</h1>
+      
+      <div class="controls">
+        <button id="selectFolderBtn">Select Folder</button>
+        <span id="selectedPath">No folder selected</span>
+        <span id="fileCount" class="file-count"></span>
+      </div>
+      
+      <div id="loading" class="loading hidden">Loading MP3 files...</div>
+      
+      <div id="mainContent" class="main-content hidden">
+        <!-- Tab Navigation -->
+        <div class="tab-nav">
+          <button class="tab-button active" data-tab="metadata">📋 View Metadata</button>
+          <button class="tab-button" data-tab="cleanup">🧹 Clean Genres</button>
+          <button class="tab-button" data-tab="naming">🎵 Naming via Lyrics</button>
+        </div>
+        
+        <!-- Metadata Tab -->
+        <div id="metadata-tab" class="tab-content active">
+          <div class="tab-header">
+            <h2>MP3 Files and Metadata</h2>
+            <div class="metadata-stats">
+              <span id="totalFiles">0 files loaded</span>
+            </div>
+          </div>
+          
+          <!-- Column Controls -->
+          <div class="table-controls">
+            <div class="column-toggles">
+              <div class="column-toggle" onclick="toggleColumnVisual('art')">
+                <span class="toggle-icon" id="toggle-art">👁️</span>
+                <span class="toggle-label">Art</span>
+              </div>
+              <div class="column-toggle" onclick="toggleColumnVisual('filename')">
+                <span class="toggle-icon" id="toggle-filename">👁️</span>
+                <span class="toggle-label">Filename</span>
+              </div>
+              <div class="column-toggle" onclick="toggleColumnVisual('genre')">
+                <span class="toggle-icon" id="toggle-genre">👁️</span>
+                <span class="toggle-label">Genre</span>
+              </div>
+              <div class="column-toggle" onclick="toggleColumnVisual('title')">
+                <span class="toggle-icon" id="toggle-title">👁️</span>
+                <span class="toggle-label">Title</span>
+              </div>
+              <div class="column-toggle" onclick="toggleColumnVisual('artist')">
+                <span class="toggle-icon" id="toggle-artist">👁️</span>
+                <span class="toggle-label">Artist</span>
+              </div>
+              <div class="column-toggle" onclick="toggleColumnVisual('album')">
+                <span class="toggle-icon" id="toggle-album">👁️</span>
+                <span class="toggle-label">Album</span>
+              </div>
+              <div class="column-toggle" onclick="toggleColumnVisual('lyrics')">
+                <span class="toggle-icon" id="toggle-lyrics">👁️</span>
+                <span class="toggle-label">Lyrics</span>
+              </div>
+            </div>
+            <div class="sort-controls">
+              <button class="sort-btn" onclick="sortTable('title')">Sort by Title</button>
+              <button class="sort-btn" onclick="sortTable('album')">Sort by Album</button>
+              <button class="sort-btn" onclick="resetSort()">Reset Order</button>
+            </div>
+          </div>
+          
+          <div id="fileList" class="file-list"></div>
+        </div>
+        
+        <!-- Cleanup Tab -->
+        <div id="cleanup-tab" class="tab-content">
+          <div class="tab-header">
+            <h2>Genre Cleanup</h2>
+            <p>Select genres you want to <strong>remove</strong> from all songs:</p>
+          </div>
+          
+          <div class="genre-stats">
+            <span id="genreCount">0 unique genres found</span>
+            <span id="selectedCount">0 genres selected for removal</span>
+          </div>
+          
+          <div id="genreToggles" class="genre-toggles"></div>
+          
+          <div class="cleanup-controls">
+            <button id="previewBtn" class="secondary-btn">Preview Changes</button>
+            <button id="applyBtn" class="primary-btn" disabled>Apply Changes to Files</button>
+            <button id="clearSelectionBtn" class="tertiary-btn">Clear Selection</button>
+          </div>
+          
+          <div id="previewSection" class="preview-section hidden">
+            <h3>Preview Changes</h3>
+            <div class="preview-stats">
+              <span id="changesCount">0 files will be modified</span>
+            </div>
+            <div id="previewList" class="preview-list"></div>
+          </div>
+        </div>
+        
+        <!-- Naming via Lyrics Tab -->
+        <div id="naming-tab" class="tab-content">
+          <div class="tab-header">
+            <h2>🎵 Naming via Lyrics</h2>
+            <p>Search for lyrics and automatically rename files with custom templates</p>
+          </div>
+          
+          <div class="naming-section">
+            <div class="naming-rules">
+              <div class="naming-rule-header">
+                <h3>Lyric Search Rules</h3>
+                <button class="btn primary-btn" onclick="addNamingRule()">+ Add New Rule</button>
+              </div>
+              <div id="namingRulesList">
+                <div class="no-rules">No naming rules defined. Click "Add New Rule" to get started.</div>
+              </div>
+            </div>
+            
+            <div class="naming-actions">
+              <button class="btn primary-btn" onclick="previewNamingChanges()">🔍 Preview Changes</button>
+              <button class="btn secondary-btn" onclick="applyNamingChanges()">✅ Apply All Changes</button>
+              <button class="btn secondary-btn" onclick="saveNamingRules()">💾 Save Rules</button>
+              <button class="btn secondary-btn" onclick="loadNamingRules()">📂 Load Rules</button>
+              <button class="btn tertiary-btn" onclick="clearNamingRules()">🗑️ Clear All Rules</button>
+            </div>
+            
+            <div id="namingPreview" class="naming-preview">
+              <!-- Preview results will appear here -->
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <script>
+      let mp3Data = [];
+      let allGenres = new Set();
+      let genresToRemove = new Set();
+      let currentTab = 'metadata';
+      let sortColumn = null;
+      let sortDirection = 'asc';
+      let visibleColumns = {
+        art: true,
+        filename: true,
+        genre: true,
+        title: true,
+        artist: true,
+        album: true,
+        lyrics: true
+      };
+      
+      document.addEventListener('DOMContentLoaded', async () => {
+        const selectFolderBtn = document.getElementById('selectFolderBtn');
+        const selectedPath = document.getElementById('selectedPath');
+        const fileCount = document.getElementById('fileCount');
+        const loading = document.getElementById('loading');
+        const mainContent = document.getElementById('mainContent');
+        const fileList = document.getElementById('fileList');
+        const genreToggles = document.getElementById('genreToggles');
+        const previewBtn = document.getElementById('previewBtn');
+        const applyBtn = document.getElementById('applyBtn');
+        const clearSelectionBtn = document.getElementById('clearSelectionBtn');
+        const previewSection = document.getElementById('previewSection');
+        const previewList = document.getElementById('previewList');
+        
+        // Ensure window is properly focused for input interactions
+        window.addEventListener('focus', () => {
+          document.body.focus();
+        });
+        
+        // Handle potential focus issues in Electron
+        document.addEventListener('click', (e) => {
+          if (e.target.tagName === 'INPUT') {
+            setTimeout(() => {
+              e.target.focus();
+            }, 0);
+          }
+        });
+        
+        // Tab switching
+        document.querySelectorAll('.tab-button').forEach(button => {
+          button.addEventListener('click', () => {
+            const tabName = button.dataset.tab;
+            switchTab(tabName);
+          });
+        });
+        
+        function switchTab(tabName) {
+          // Update tab buttons
+          document.querySelectorAll('.tab-button').forEach(btn => {
+            btn.classList.remove('active');
+          });
+          document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+          
+          // Update tab content
+          document.querySelectorAll('.tab-content').forEach(content => {
+            content.classList.remove('active');
+          });
+          document.getElementById(`${tabName}-tab`).classList.add('active');
+          
+          currentTab = tabName;
+        }
+        
+        selectFolderBtn.addEventListener('click', async () => {
+          try {
+            const folderPath = await window.electronAPI.selectFolder();
+            
+            if (folderPath) {
+              selectedPath.textContent = folderPath;
+              loading.classList.remove('hidden');
+              mainContent.classList.add('hidden');
+              
+              mp3Data = await window.electronAPI.readMP3Metadata(folderPath);
+              
+              loading.classList.add('hidden');
+              
+              if (mp3Data.length === 0) {
+                fileList.innerHTML = '<p>No MP3 files found in the selected folder.</p>';
+                fileCount.textContent = '';
+                mainContent.classList.remove('hidden');
+              } else {
+                fileCount.textContent = `(${mp3Data.length} MP3 files found)`;
+                // Add original indices for tracking after sorting
+                mp3Data.forEach((file, index) => {
+                  file.originalIndex = index;
+                });
+                displayFiles();
+                extractGenres();
+                displayGenreToggles();
+                updateStats();
+                mainContent.classList.remove('hidden');
+                // Start on metadata tab
+                switchTab('metadata');
+              }
+            }
+          } catch (error) {
+            console.error('Error:', error);
+            alert('Error reading MP3 files: ' + error.message);
+            loading.classList.add('hidden');
+          }
+        });
+        
+        previewBtn.addEventListener('click', () => {
+          generatePreview();
+          previewSection.classList.remove('hidden');
+          applyBtn.disabled = false;
+        });
+        
+        applyBtn.addEventListener('click', async () => {
+          if (confirm('This will modify your MP3 files. Are you sure you want to continue?')) {
+            await applyChanges();
+          }
+        });
+        
+        clearSelectionBtn.addEventListener('click', () => {
+          genresToRemove.clear();
+          document.querySelectorAll('.genre-checkbox').forEach(checkbox => {
+            checkbox.checked = false;
+          });
+          updateStats();
+          previewSection.classList.add('hidden');
+          applyBtn.disabled = true;
+        });
+        
+        function displayFiles() {
+          let html = '<div class="table-container"><table><thead><tr>' +
+            '<th class="col-art">Art</th>' +
+            '<th class="col-filename">Filename</th>' +
+            '<th class="col-genre">Current Genres</th>' +
+            '<th class="col-title sortable" onclick="sortTable(\'title\')">' +
+              'Title <span class="sort-indicator" id="sort-title"></span>' +
+            '</th>' +
+            '<th class="col-artist">Artist</th>' +
+            '<th class="col-album sortable" onclick="sortTable(\'album\')">' +
+              'Album <span class="sort-indicator" id="sort-album"></span>' +
+            '</th>' +
+            '<th class="col-lyrics">Lyrics</th>' +
+            '</tr></thead><tbody>';
+          
+          // Get current data (sorted or original)
+          const dataToDisplay = getCurrentData();
+          
+          dataToDisplay.forEach((file, index) => {
+            const lyricsPreview = file.lyrics && file.lyrics.length > 15 
+              ? file.lyrics.substring(0, 15) + '...' 
+              : file.lyrics || 'No lyrics';
+            
+            const hasLyrics = file.lyrics && file.lyrics.length > 15;
+            
+            // Album art display
+            const albumArtHtml = file.albumArt 
+              ? `<img src="${file.albumArt}" alt="Album Art" class="album-art" onclick="showLargeImage('${file.albumArt}', '${file.title}', '${file.artist}')">`
+              : '<div class="no-album-art">No Image</div>';
+            
+            // Main row with metadata
+            html += `<tr>
+              <td class="album-art-cell col-art">${albumArtHtml}</td>
+              <td class="col-filename"><span class="file-index">${index + 1}.</span> ${file.filename}</td>
+              <td class="genre col-genre">${file.genre}</td>
+              <td class="col-title">${file.title}</td>
+              <td class="col-artist">${file.artist}</td>
+              <td class="col-album">${file.album}</td>
+              <td class="lyrics-cell col-lyrics">
+                <div class="lyrics-preview">${lyricsPreview}</div>
+                ${hasLyrics ? `<button class="show-lyrics-btn" onclick="toggleLyrics(${file.originalIndex || index})">Show</button>` : ''}
+              </td>
+            </tr>`;
+            
+            // Expandable lyrics row (spans all columns)
+            if (hasLyrics) {
+              html += `<tr id="lyrics-row-${file.originalIndex || index}" class="lyrics-row hidden">
+                <td colspan="7" class="lyrics-expanded-cell">
+                  <div class="lyrics-expanded-container">
+                    <div class="lyrics-header">
+                      <h4>Lyrics for "${file.title}" by ${file.artist}</h4>
+                      <button class="hide-lyrics-btn" onclick="toggleLyrics(${file.originalIndex || index})">Hide</button>
+                    </div>
+                    <div class="lyrics-content">${file.lyrics}</div>
+                  </div>
+                </td>
+              </tr>`;
+            }
+          });
+          
+          html += '</tbody></table></div>';
+          fileList.innerHTML = html;
+          updateColumnVisibility();
+          updateSortIndicators();
+        }
+        
+        window.extractGenres = function() {
+          allGenres.clear();
+          mp3Data.forEach(file => {
+            if (file.genre && file.genre !== 'Unknown' && file.genre !== 'Error reading file') {
+              const genres = file.genre.split('; ').map(g => g.trim()).filter(g => g);
+              genres.forEach(genre => allGenres.add(genre));
+            }
+          });
+        };
+        
+        window.displayGenreToggles = function() {
+          const sortedGenres = Array.from(allGenres).sort();
+          let html = '';
+          
+          sortedGenres.forEach(genre => {
+            html += `
+              <div class="genre-toggle">
+                <label>
+                  <input type="checkbox" class="genre-checkbox" data-genre="${genre}">
+                  <span class="genre-name">${genre}</span>
+                </label>
+              </div>
+            `;
+          });
+          
+          genreToggles.innerHTML = html;
+          
+          // Add event listeners
+          document.querySelectorAll('.genre-checkbox').forEach(checkbox => {
+            checkbox.addEventListener('change', (e) => {
+              const genre = e.target.dataset.genre;
+              if (e.target.checked) {
+                genresToRemove.add(genre);
+              } else {
+                genresToRemove.delete(genre);
+              }
+              window.updateStats();
+              if (genresToRemove.size === 0) {
+                previewSection.classList.add('hidden');
+                applyBtn.disabled = true;
+              }
+            });
+          });
+        };
+        
+        window.updateStats = function() {
+          document.getElementById('totalFiles').textContent = `${mp3Data.length} files loaded`;
+          document.getElementById('genreCount').textContent = `${allGenres.size} unique genres found`;
+          document.getElementById('selectedCount').textContent = `${genresToRemove.size} genres selected for removal`;
+        };
+        
+        function generatePreview() {
+          let changedCount = 0;
+          let html = '<div class="table-container"><table><thead><tr><th>Filename</th><th>Original Genres</th><th>New Genres</th><th>Action</th></tr></thead><tbody>';
+          
+          mp3Data.forEach((file, index) => {
+            const originalGenres = file.genre && file.genre !== 'Unknown' && file.genre !== 'Error reading file' 
+              ? file.genre.split('; ').map(g => g.trim()).filter(g => g) 
+              : [];
+            
+            let newGenres = originalGenres.filter(genre => !genresToRemove.has(genre));
+            let actionText = 'No change';
+            let hasChanges = false;
+            
+            // Apply the "no empty genres" rule
+            if (newGenres.length === 0 && originalGenres.length > 0) {
+              if (originalGenres.length <= 2) {
+                // Keep all original genres if 1 or 2 total
+                newGenres = originalGenres;
+                actionText = 'Keeping all (min genres rule)';
+              } else {
+                // Keep the 2 shortest genres if 3+ total
+                const sortedByLength = originalGenres.slice().sort((a, b) => a.length - b.length);
+                newGenres = sortedByLength.slice(0, 2);
+                actionText = 'Keeping 2 shortest (min genres rule)';
+                hasChanges = true;
+                changedCount++;
+              }
+            } else if (originalGenres.length !== newGenres.length) {
+              hasChanges = true;
+              changedCount++;
+              actionText = 'Removing selected genres';
+            }
+            
+            const newGenreString = newGenres.length > 0 ? newGenres.join('; ') : '';
+            
+            html += `<tr ${hasChanges ? 'class="changed"' : ''}>
+              <td><span class="file-index">${index + 1}.</span> ${file.filename}</td>
+              <td class="original-genres">${file.genre}</td>
+              <td class="new-genres">${newGenreString || '<em>No genres remaining</em>'}</td>
+              <td class="action-text">${actionText}</td>
+            </tr>`;
+          });
+          
+          html += '</tbody></table></div>';
+          previewList.innerHTML = html;
+          document.getElementById('changesCount').textContent = `${changedCount} files will be modified`;
+        }
+        
+        async function applyChanges() {
+          try {
+            loading.classList.remove('hidden');
+            
+            const updates = mp3Data.map(file => {
+              const originalGenres = file.genre && file.genre !== 'Unknown' && file.genre !== 'Error reading file' 
+                ? file.genre.split('; ').map(g => g.trim()).filter(g => g) 
+                : [];
+              
+              let newGenres = originalGenres.filter(genre => !genresToRemove.has(genre));
+              
+              // Apply the "no empty genres" rule
+              if (newGenres.length === 0 && originalGenres.length > 0) {
+                if (originalGenres.length <= 2) {
+                  // Keep all original genres if 1 or 2 total
+                  newGenres = originalGenres;
+                } else {
+                  // Keep the 2 shortest genres if 3+ total
+                  const sortedByLength = originalGenres.slice().sort((a, b) => a.length - b.length);
+                  newGenres = sortedByLength.slice(0, 2);
+                }
+              }
+              
+              const newGenreString = newGenres.length > 0 ? newGenres.join('; ') : '';
+              
+              return {
+                filename: file.filename,
+                filePath: file.filePath,
+                newGenre: newGenreString
+              };
+            });
+            
+            const results = await window.electronAPI.updateMP3Genres(updates);
+            
+            loading.classList.add('hidden');
+            
+            const successful = results.filter(r => r.success).length;
+            const failed = results.filter(r => !r.success).length;
+            
+            alert(`Genre update complete!\nSuccessful: ${successful}\nFailed: ${failed}`);
+            
+            if (successful > 0) {
+              // Refresh the data
+              const folderPath = selectedPath.textContent;
+              mp3Data = await window.electronAPI.readMP3Metadata(folderPath);
+                // Add original indices for tracking after sorting
+                mp3Data.forEach((file, index) => {
+                  file.originalIndex = index;
+                });
+                displayFiles();
+                extractGenres();
+                displayGenreToggles();
+                updateStats();
+                previewSection.classList.add('hidden');
+                applyBtn.disabled = true;
+                genresToRemove.clear();
+              }
+            
+          } catch (error) {
+            console.error('Error applying changes:', error);
+            alert('Error applying changes: ' + error.message);
+            loading.classList.add('hidden');
+          }
+        }
+        
+        // Sorting functions - remove duplicates
+        function getCurrentData() {
+          return mp3Data.slice(); // Return a copy
+        }
+      });
+      
+      // Global functions that need to be accessible from HTML onclick handlers
+      window.displayFiles = function() {
+        let html = '<div class="table-container"><table><thead><tr>' +
+          '<th class="col-art">Art</th>' +
+          '<th class="col-filename">Filename</th>' +
+          '<th class="col-genre">Current Genres</th>' +
+          '<th class="col-title sortable" onclick="sortTable(\'title\')">' +
+            'Title <span class="sort-indicator" id="sort-title"></span>' +
+          '</th>' +
+          '<th class="col-artist">Artist</th>' +
+          '<th class="col-album sortable" onclick="sortTable(\'album\')">' +
+            'Album <span class="sort-indicator" id="sort-album"></span>' +
+          '</th>' +
+          '<th class="col-lyrics">Lyrics</th>' +
+          '</tr></thead><tbody>';
+        
+        // Get current data (sorted or original)
+        const dataToDisplay = mp3Data.slice();
+        
+        dataToDisplay.forEach((file, index) => {
+          const lyricsPreview = file.lyrics && file.lyrics.length > 15 
+            ? file.lyrics.substring(0, 15) + '...' 
+            : file.lyrics || 'No lyrics';
+          
+          const hasLyrics = file.lyrics && file.lyrics.length > 15;
+          
+          // Album art display - escape quotes properly
+          const escapedTitle = (file.title || '').replace(/'/g, '&apos;').replace(/"/g, '&quot;');
+          const escapedArtist = (file.artist || '').replace(/'/g, '&apos;').replace(/"/g, '&quot;');
+          const albumArtHtml = file.albumArt 
+            ? `<img src="${file.albumArt}" alt="Album Art" class="album-art" onclick="showLargeImage('${file.albumArt}', '${escapedTitle}', '${escapedArtist}')">`
+            : '<div class="no-album-art">No Image</div>';
+          
+          // Main row with metadata
+          html += '<tr>' +
+            '<td class="album-art-cell col-art">' + albumArtHtml + '</td>' +
+            '<td class="col-filename"><span class="file-index">' + (index + 1) + '.</span> ' + (file.filename || '') + '</td>' +
+            '<td class="genre col-genre">' + (file.genre || '') + '</td>' +
+            '<td class="col-title">' + (file.title || '') + '</td>' +
+            '<td class="col-artist">' + (file.artist || '') + '</td>' +
+            '<td class="col-album">' + (file.album || '') + '</td>' +
+            '<td class="lyrics-cell col-lyrics">' +
+              '<div class="lyrics-preview">' + lyricsPreview + '</div>' +
+              (hasLyrics ? '<button class="show-lyrics-btn" onclick="toggleLyrics(' + (file.originalIndex || index) + ')">Show</button>' : '') +
+            '</td>' +
+          '</tr>';
+          
+          // Expandable lyrics row (spans all columns)
+          if (hasLyrics) {
+            const escapedLyrics = (file.lyrics || '').replace(/'/g, '&apos;').replace(/"/g, '&quot;').replace(/\n/g, '<br>');
+            html += '<tr id="lyrics-row-' + (file.originalIndex || index) + '" class="lyrics-row hidden">' +
+              '<td colspan="7" class="lyrics-expanded-cell">' +
+                '<div class="lyrics-expanded-container">' +
+                  '<div class="lyrics-header">' +
+                    '<h4>Lyrics for "' + (file.title || '') + '" by ' + (file.artist || '') + '</h4>' +
+                    '<button class="hide-lyrics-btn" onclick="toggleLyrics(' + (file.originalIndex || index) + ')">Hide</button>' +
+                  '</div>' +
+                  '<div class="lyrics-content">' + (file.lyrics || '') + '</div>' +
+                '</div>' +
+              '</td>' +
+            '</tr>';
+          }
+        });
+        
+        html += '</tbody></table></div>';
+        document.getElementById('fileList').innerHTML = html;
+        updateColumnVisibility();
+        updateSortIndicators();
+        window.updateToggleIcons(); // Update toggle icons after rendering
+      };
+      
+      window.updateColumnVisibility = function() {
+        Object.keys(visibleColumns).forEach(column => {
+          const elements = document.querySelectorAll(`.col-${column}`);
+          elements.forEach(element => {
+            if (visibleColumns[column]) {
+              element.style.display = '';
+            } else {
+              element.style.display = 'none';
+            }
+          });
+        });
+      };
+      
+      window.updateSortIndicators = function() {
+        // Clear all indicators
+        document.querySelectorAll('.sort-indicator').forEach(indicator => {
+          indicator.textContent = '';
+        });
+        
+        // Set current sort indicator
+        if (sortColumn) {
+          const indicator = document.getElementById(`sort-${sortColumn}`);
+          if (indicator) {
+            indicator.textContent = sortDirection === 'asc' ? ' ▲' : ' ▼';
+          }
+        }
+      };
+      
+      // Global function for toggling lyrics display
+      window.toggleLyrics = function(index) {
+        const lyricsRow = document.getElementById(`lyrics-row-${index}`);
+        const isHidden = lyricsRow.classList.contains('hidden');
+        
+        if (isHidden) {
+          lyricsRow.classList.remove('hidden');
+          // Scroll the lyrics into view
+          setTimeout(() => {
+            lyricsRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }, 100);
+        } else {
+          lyricsRow.classList.add('hidden');
+        }
+      };
+      
+      // Global function for showing large album art
+      window.showLargeImage = function(imageSrc, title, artist) {
+        // Create modal overlay
+        const modal = document.createElement('div');
+        modal.className = 'image-modal';
+        
+        const modalContent = document.createElement('div');
+        modalContent.className = 'image-modal-content';
+        
+        const header = document.createElement('div');
+        header.className = 'image-modal-header';
+        
+        const titleEl = document.createElement('h3');
+        titleEl.textContent = title + ' by ' + artist;
+        
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'close-modal';
+        closeBtn.innerHTML = '&times;';
+        closeBtn.onclick = function() { modal.remove(); };
+        
+        header.appendChild(titleEl);
+        header.appendChild(closeBtn);
+        
+        const img = document.createElement('img');
+        img.src = imageSrc;
+        img.alt = 'Album Art';
+        img.className = 'large-album-art';
+        
+        modalContent.appendChild(header);
+        modalContent.appendChild(img);
+        modal.appendChild(modalContent);
+        
+        // Close modal when clicking outside
+        modal.addEventListener('click', function(e) {
+          if (e.target === modal) {
+            modal.remove();
+          }
+        });
+        
+        document.body.appendChild(modal);
+      };
+      
+      // Global sorting functions
+      window.sortTable = function(column) {
+        if (sortColumn === column) {
+          sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+        } else {
+          sortColumn = column;
+          sortDirection = 'asc';
+        }
+        
+        mp3Data.sort((a, b) => {
+          let aVal = a[column] || '';
+          let bVal = b[column] || '';
+          
+          // Convert to lowercase for case-insensitive sorting
+          aVal = aVal.toLowerCase();
+          bVal = bVal.toLowerCase();
+          
+          if (sortDirection === 'asc') {
+            return aVal.localeCompare(bVal);
+          } else {
+            return bVal.localeCompare(aVal);
+          }
+        });
+        
+        window.displayFiles();
+      };
+      
+      window.resetSort = function() {
+        sortColumn = null;
+        sortDirection = 'asc';
+        // Re-read data to restore original order
+        const folderPath = document.getElementById('selectedPath').textContent;
+        if (folderPath && folderPath !== 'No folder selected') {
+          window.electronAPI.readMP3Metadata(folderPath).then(data => {
+            mp3Data = data;
+            mp3Data.forEach((file, index) => {
+              file.originalIndex = index;
+            });
+            window.displayFiles();
+          });
+        }
+      };
+      
+      // Global column visibility functions
+      window.toggleColumn = function(column, visible) {
+        visibleColumns[column] = visible;
+        window.updateColumnVisibility();
+      };
+      
+      // New visual toggle function for eye icons
+      window.toggleColumnVisual = function(column) {
+        visibleColumns[column] = !visibleColumns[column];
+        window.updateColumnVisibility();
+        window.updateToggleIcons();
+      };
+      
+      window.updateToggleIcons = function() {
+        Object.keys(visibleColumns).forEach(column => {
+          const toggleIcon = document.getElementById('toggle-' + column);
+          if (toggleIcon) {
+            if (visibleColumns[column]) {
+              toggleIcon.textContent = '👁️'; // Open eye
+              toggleIcon.parentElement.classList.remove('column-hidden');
+            } else {
+              toggleIcon.textContent = '🙈'; // Closed eye / see-no-evil monkey
+              toggleIcon.parentElement.classList.add('column-hidden');
+            }
+          }
+        });
+      };
+
+      // Naming via Lyrics functionality
+      let namingRules = [];
+      let namingRuleCounter = 0;
+
+      window.addNamingRule = function() {
+        const ruleId = ++namingRuleCounter;
+        const rule = {
+          id: ruleId,
+          lyricSearch: '',
+          albumTemplate: '',
+          songTemplate: '',
+          artistTemplate: '',
+          filenameTemplate: '',
+          startNumber: 1
+        };
+        
+        namingRules.push(rule);
+        renderNamingRules();
+      };
+
+      window.removeNamingRule = function(ruleId) {
+        namingRules = namingRules.filter(rule => rule.id !== ruleId);
+        renderNamingRules();
+      };
+
+      window.updateNamingRule = function(ruleId, field, value) {
+        const rule = namingRules.find(r => r.id === ruleId);
+        if (rule) {
+          rule[field] = value;
+          console.log(`Updated rule ${ruleId} ${field} to:`, value); // Debug logging
+          
+          // If updating lyricSearch, update the preview immediately
+          if (field === 'lyricSearch') {
+            window.updateRulePreviewText(ruleId);
+          }
+        } else {
+          console.error('Rule not found:', ruleId);
+        }
+      };
+
+      window.updateRulePreviewText = function(ruleId) {
+        const rule = namingRules.find(r => r.id === ruleId);
+        if (rule) {
+          const previewElement = document.querySelector(`[data-rule-id="${ruleId}"] .rule-lyrics-preview`);
+          if (previewElement) {
+            const hasLyrics = rule.lyricSearch && rule.lyricSearch.trim() !== '';
+            previewElement.innerHTML = hasLyrics ? 
+              `"${rule.lyricSearch}"` : 
+              '<em>No lyrics specified</em>';
+          }
+        }
+      };
+
+      function renderNamingRules() {
+        const container = document.getElementById('namingRulesList');
+        if (!container) return;
+
+        let html = '';
+        namingRules.forEach(rule => {
+          const hasLyrics = rule.lyricSearch && rule.lyricSearch.trim() !== '';
+          const previewText = hasLyrics ? rule.lyricSearch : 'No lyrics specified';
+          
+          html += '<div class="naming-rule" data-rule-id="' + rule.id + '">';
+          
+          // Collapsible header/preview
+          html += '  <div class="naming-rule-preview" onclick="toggleRuleExpansion(' + rule.id + ')">';
+          html += '    <div class="rule-preview-content">';
+          html += '      <div class="rule-preview-info">';
+          html += '        <span class="rule-number">Rule #' + rule.id + '</span>';
+          html += '        <span class="rule-lyrics-preview">' + (hasLyrics ? '"' + previewText + '"' : '<em>No lyrics specified</em>') + '</span>';
+          html += '      </div>';
+          html += '      <div class="rule-preview-actions">';
+          html += '        <button class="btn-small tertiary-btn" onclick="event.stopPropagation(); removeNamingRule(' + rule.id + ')">Remove</button>';
+          html += '        <span class="expand-icon" id="expand-icon-' + rule.id + '">▼</span>';
+          html += '      </div>';
+          html += '    </div>';
+          html += '  </div>';
+          
+          // Expandable content (initially hidden)
+          html += '  <div class="naming-rule-content" id="rule-content-' + rule.id + '" style="display: none;">';
+          html += '    <div class="naming-input-group">';
+          html += '      <label>Lyric Search Text:</label>';
+          html += '      <input type="text" placeholder="Enter lyrics to search for..." data-rule-id="' + rule.id + '" data-field="lyricSearch">';
+          html += '      <small>Search for this text in song lyrics</small>';
+          html += '    </div>';
+          html += '    <div class="naming-templates">';
+          html += '      <div class="template-row">';
+          html += '        <div class="template-input">';
+          html += '          <label>Album Name Template:</label>';
+          html += '          <input type="text" placeholder="e.g., {genre} Compilation" data-rule-id="' + rule.id + '" data-field="albumTemplate">';
+          html += '        </div>';
+          html += '        <div class="template-input">';
+          html += '          <label>Song Name Template:</label>';
+          html += '          <input type="text" placeholder="e.g., {title} - {artist}" data-rule-id="' + rule.id + '" data-field="songTemplate">';
+          html += '        </div>';
+          html += '      </div>';
+          html += '      <div class="template-row">';
+          html += '        <div class="template-input">';
+          html += '          <label>Artist Name Template:</label>';
+          html += '          <input type="text" placeholder="e.g., Various Artists" data-rule-id="' + rule.id + '" data-field="artistTemplate">';
+          html += '        </div>';
+          html += '        <div class="template-input">';
+          html += '          <label>Start Number:</label>';
+          html += '          <input type="number" min="1" value="1" data-rule-id="' + rule.id + '" data-field="startNumber">';
+          html += '        </div>';
+          html += '      </div>';
+          html += '      <div class="template-row">';
+          html += '        <div class="template-input full-width">';
+          html += '          <label>Filename Template:</label>';
+          html += '          <input type="text" placeholder="e.g., {number:03d} - {artist} - {title} [{genre}]" data-rule-id="' + rule.id + '" data-field="filenameTemplate">';
+          html += '          <small>Variables: {number}, {artist}, {title}, {album}, {genre}, {year}. Use {number:03d} for padded numbers.</small>';
+          html += '        </div>';
+          html += '      </div>';
+          html += '    </div>';
+          html += '  </div>';
+          html += '</div>';
+        });
+        
+        if (namingRules.length === 0) {
+          html = '<div class="no-rules">No naming rules defined. Click "Add New Rule" to get started.</div>';
+        }
+        
+        container.innerHTML = html;
+        
+        console.log('HTML set, about to add event listeners...'); // Debug
+        
+        // Set input values and add event listeners
+        setTimeout(() => {
+          const inputs = container.querySelectorAll('input[data-rule-id]');
+          
+          inputs.forEach((input) => {
+            const ruleId = parseInt(input.getAttribute('data-rule-id'));
+            const field = input.getAttribute('data-field');
+            const rule = namingRules.find(r => r.id === ruleId);
+            
+            // Set the value directly via JavaScript (no HTML escaping needed)
+            if (rule && rule[field] !== undefined) {
+              input.value = rule[field];
+            }
+            
+            // Add event listeners
+            input.addEventListener('input', handleInputChange);
+            input.addEventListener('change', handleInputChange);
+          });
+        }, 10);
+      }
+      
+      function handleInputChange(event) {
+        const ruleId = parseInt(event.target.getAttribute('data-rule-id'));
+        const field = event.target.getAttribute('data-field');
+        let value = event.target.value;
+        
+        // Handle number fields
+        if (field === 'startNumber') {
+          value = parseInt(value) || 1;
+        }
+        
+        window.updateNamingRule(ruleId, field, value);
+      }
+
+      window.previewNamingChanges = function() {
+        if (!mp3Data || mp3Data.length === 0) {
+          alert('Please select a folder and load MP3 files first.');
+          return;
+        }
+        
+        if (namingRules.length === 0) {
+          alert('Please add at least one naming rule.');
+          return;
+        }
+        
+        window.electronAPI.previewNamingChanges(namingRules, mp3Data).then(result => {
+          displayNamingPreview(result);
+        }).catch(error => {
+          console.error('Error previewing naming changes:', error);
+          alert('Error previewing changes: ' + error.message);
+        });
+      };
+
+      window.applyNamingChanges = function() {
+        if (!mp3Data || mp3Data.length === 0) {
+          alert('Please select a folder and load MP3 files first.');
+          return;
+        }
+        
+        if (namingRules.length === 0) {
+          alert('Please add at least one naming rule.');
+          return;
+        }
+        
+        if (!confirm('This will permanently rename files and update metadata. Continue?')) {
+          return;
+        }
+        
+        window.electronAPI.applyNamingChanges(namingRules, mp3Data).then(result => {
+          alert('Successfully updated ' + result.updated + ' files!');
+          // Reload the file data
+          const folderPath = document.getElementById('selectedPath').textContent;
+          window.electronAPI.readMP3Metadata(folderPath).then(files => {
+            mp3Data = files;
+            mp3Data.forEach((file, index) => {
+              file.originalIndex = index;
+            });
+            displayFiles();
+            window.extractGenres();
+            window.displayGenreToggles();
+            window.updateStats();
+          });
+        }).catch(error => {
+          console.error('Error applying naming changes:', error);
+          alert('Error applying changes: ' + error.message);
+        });
+      };
+
+      window.clearNamingRules = function() {
+        if (namingRules.length > 0 && confirm('Clear all naming rules?')) {
+          namingRules = [];
+          renderNamingRules();
+          document.getElementById('namingPreview').innerHTML = '';
+        }
+      };
+
+      window.toggleRuleExpansion = function(ruleId) {
+        const content = document.getElementById('rule-content-' + ruleId);
+        const icon = document.getElementById('expand-icon-' + ruleId);
+        
+        if (content && icon) {
+          if (content.style.display === 'none') {
+            content.style.display = 'block';
+            icon.textContent = '▲';
+          } else {
+            content.style.display = 'none';
+            icon.textContent = '▼';
+          }
+        }
+      };
+
+      window.updateRulePreview = function(ruleId) {
+        // This will trigger a re-render to update the preview text
+        renderNamingRules();
+        // Re-expand the rule that was just updated
+        const content = document.getElementById('rule-content-' + ruleId);
+        const icon = document.getElementById('expand-icon-' + ruleId);
+        if (content && icon) {
+          content.style.display = 'block';
+          icon.textContent = '▲';
+        }
+      };
+      window.saveNamingRules = function() {
+        if (namingRules.length === 0) {
+          alert('No naming rules to save. Please add some rules first.');
+          return;
+        }
+
+        const rulesData = {
+          version: '1.0',
+          timestamp: new Date().toISOString(),
+          rulesCount: namingRules.length,
+          rules: namingRules.map(rule => ({
+            id: rule.id,
+            lyricSearch: rule.lyricSearch,
+            albumTemplate: rule.albumTemplate,
+            songTemplate: rule.songTemplate,
+            artistTemplate: rule.artistTemplate,
+            filenameTemplate: rule.filenameTemplate,
+            startNumber: rule.startNumber
+          }))
+        };
+
+        window.electronAPI.saveNamingRules(rulesData).then(result => {
+          if (result.success) {
+            alert('Naming rules saved successfully to: ' + result.filePath);
+          }
+        }).catch(error => {
+          console.error('Error saving naming rules:', error);
+          alert('Error saving rules: ' + error.message);
+        });
+      };
+
+      window.loadNamingRules = function() {
+        window.electronAPI.loadNamingRules().then(result => {
+          if (result.success && result.data) {
+            const data = result.data;
+            
+            // Validate the loaded data
+            if (!data.rules || !Array.isArray(data.rules)) {
+              alert('Invalid rules file format.');
+              return;
+            }
+
+            // Ask user if they want to replace or merge rules
+            let shouldProceed = true;
+            if (namingRules.length > 0) {
+              const choice = confirm('You have existing rules. Click OK to replace them, or Cancel to merge with existing rules.');
+              if (choice) {
+                // Replace existing rules
+                namingRules = [];
+                namingRuleCounter = 0;
+              }
+            } else {
+              // No existing rules, just load
+              namingRules = [];
+              namingRuleCounter = 0;
+            }
+
+            if (shouldProceed) {
+              // Load the rules
+              data.rules.forEach(ruleData => {
+                const newRule = {
+                  id: ++namingRuleCounter,
+                  lyricSearch: ruleData.lyricSearch || '',
+                  albumTemplate: ruleData.albumTemplate || '',
+                  songTemplate: ruleData.songTemplate || '',
+                  artistTemplate: ruleData.artistTemplate || '',
+                  filenameTemplate: ruleData.filenameTemplate || '',
+                  startNumber: ruleData.startNumber || 1
+                };
+                namingRules.push(newRule);
+                console.log('Loaded rule:', newRule); // Debug logging
+              });
+
+              console.log('About to render naming rules...'); // Debug
+              renderNamingRules();
+              console.log('Rendered naming rules, checking inputs...'); // Debug
+              
+              // Force focus the window and check inputs after a delay
+              setTimeout(() => {
+                const inputs = document.querySelectorAll('#namingRulesList input[data-rule-id]');
+                console.log('Found inputs after load:', inputs.length); // Debug
+                
+                // Test if inputs are interactive
+                inputs.forEach(input => {
+                  console.log('Input:', input.getAttribute('data-field'), 'value:', input.value);
+                });
+                
+                // Force window focus
+                window.focus();
+                document.body.focus();
+              }, 100);
+              
+              console.log('Successfully loaded ' + data.rules.length + ' naming rules!');
+            }
+          }
+        }).catch(error => {
+          console.error('Error loading naming rules:', error);
+          alert('Error loading rules: ' + error.message);
+        });
+      };
+      function displayNamingPreview(results) {
+        const container = document.getElementById('namingPreview');
+        if (!container) return;
+        
+        let html = '<div class="preview-header">';
+        html += '<h3>Preview Results (' + results.totalMatches + ' matches found)</h3>';
+        html += '</div>';
+        
+        if (results.totalMatches === 0) {
+          html += '<div class="no-matches">No files matched the lyric search criteria.</div>';
+        } else {
+          html += '<div class="preview-table-container">';
+          html += '<table class="preview-table">';
+          html += '<thead>';
+          html += '<tr><th>Original File</th><th>New Filename</th><th>New Artist</th><th>New Title</th><th>New Album</th><th>Rule Used</th></tr>';
+          html += '</thead><tbody>';
+          
+          results.matches.forEach(match => {
+            html += '<tr>';
+            html += '<td>' + match.originalFilename + '</td>';
+            html += '<td>' + match.newFilename + '</td>';
+            html += '<td>' + match.newArtist + '</td>';
+            html += '<td>' + match.newTitle + '</td>';
+            html += '<td>' + match.newAlbum + '</td>';
+            html += '<td>Rule #' + match.ruleId + '</td>';
+            html += '</tr>';
+          });
+          
+          html += '</tbody></table></div>';
+        }
+        
+        container.innerHTML = html;
+      }
+    </script>
+  </body>
+</html>

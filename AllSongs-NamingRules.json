@@ -1,0 +1,340 @@
+{
+  "version": "1.0",
+  "timestamp": "2025-12-20T23:45:00.000Z",
+  "rulesCount": 36,
+  "rules": [
+    {
+      "id": 1,
+      "lyricSearch": "",
+      "albumTemplate": "A Good Feeling Body",
+      "songTemplate": "A Good Feeling Body - {number:02d}",
+      "artistTemplate": "Graham Thomas",
+      "filenameTemplate": "A Good Feeling Body - {number:02d} - {genre}",
+      "startNumber": 1
+    },
+    {
+      "id": 2,
+      "lyricSearch": "",
+      "albumTemplate": "Albion Songs",
+      "songTemplate": "Albion Songs - {number:02d}",
+      "artistTemplate": "Graham Thomas",
+      "filenameTemplate": "Albion Songs - {number:02d} - {genre}",
+      "startNumber": 1
+    },
+    {
+      "id": 3,
+      "lyricSearch": "",
+      "albumTemplate": "A Letter From The Future",
+      "songTemplate": "A Letter From The Future - {number:02d}",
+      "artistTemplate": "Graham Thomas",
+      "filenameTemplate": "A Letter From The Future - {number:02d} - {genre}",
+      "startNumber": 1
+    },
+    {
+      "id": 4,
+      "lyricSearch": "",
+      "albumTemplate": "Allowance Is Ease",
+      "songTemplate": "Allowance Is Ease - {number:02d}",
+      "artistTemplate": "Graham Thomas",
+      "filenameTemplate": "Allowance Is Ease - {number:02d} - {genre}",
+      "startNumber": 1
+    },
+    {
+      "id": 5,
+      "lyricSearch": "",
+      "albumTemplate": "Allow The Frequency Of The Fully Manifested Me",
+      "songTemplate": "Allow The Frequency - {number:02d}",
+      "artistTemplate": "Graham Thomas",
+      "filenameTemplate": "Allow The Frequency - {number:02d} - {genre}",
+      "startNumber": 1
+    },
+    {
+      "id": 6,
+      "lyricSearch": "",
+      "albumTemplate": "Appear Lottery Times Complete",
+      "songTemplate": "Appear Lottery Times Complete - {number:02d}",
+      "artistTemplate": "Graham Thomas",
+      "filenameTemplate": "Appear Lottery Times Complete - {number:02d} - {genre}",
+      "startNumber": 1
+    },
+    {
+      "id": 7,
+      "lyricSearch": "",
+      "albumTemplate": "Be All In",
+      "songTemplate": "Be All In - {number:02d}",
+      "artistTemplate": "Graham Thomas",
+      "filenameTemplate": "Be All In - {number:02d} - {genre}",
+      "startNumber": 1
+    },
+    {
+      "id": 8,
+      "lyricSearch": "",
+      "albumTemplate": "Beauty Healing",
+      "songTemplate": "Beauty Healing - {number:02d}",
+      "artistTemplate": "Graham Thomas",
+      "filenameTemplate": "Beauty Healing - {number:02d} - {genre}",
+      "startNumber": 1
+    },
+    {
+      "id": 9,
+      "lyricSearch": "",
+      "albumTemplate": "Build The Fire",
+      "songTemplate": "Build The Fire - {number:02d}",
+      "artistTemplate": "Graham Thomas",
+      "filenameTemplate": "Build The Fire - {number:02d} - {genre}",
+      "startNumber": 1
+    },
+    {
+      "id": 10,
+      "lyricSearch": "",
+      "albumTemplate": "Demanding Joy",
+      "songTemplate": "Demanding Joy - {number:02d}",
+      "artistTemplate": "Graham Thomas",
+      "filenameTemplate": "Demanding Joy - {number:02d} - {genre}",
+      "startNumber": 1
+    },
+    {
+      "id": 11,
+      "lyricSearch": "",
+      "albumTemplate": "Dominate The Landscape",
+      "songTemplate": "Dominate The Landscape - {number:02d}",
+      "artistTemplate": "Graham Thomas",
+      "filenameTemplate": "Dominate The Landscape - {number:02d} - {genre}",
+      "startNumber": 1
+    },
+    {
+      "id": 12,
+      "lyricSearch": "",
+      "albumTemplate": "Every Chakra In The Grove",
+      "songTemplate": "Every Chakra In The Grove - {number:02d}",
+      "artistTemplate": "Graham Thomas",
+      "filenameTemplate": "Every Chakra In The Grove - {number:02d} - {genre}",
+      "startNumber": 1
+    },
+    {
+      "id": 13,
+      "lyricSearch": "",
+      "albumTemplate": "Forge A Feeling Deep",
+      "songTemplate": "Forge A Feeling Deep - {number:02d}",
+      "artistTemplate": "Graham Thomas",
+      "filenameTemplate": "Forge A Feeling Deep - {number:02d} - {genre}",
+      "startNumber": 1
+    },
+    {
+      "id": 14,
+      "lyricSearch": "",
+      "albumTemplate": "Frequency Flip",
+      "songTemplate": "Frequency Flip - {number:02d}",
+      "artistTemplate": "Graham Thomas",
+      "filenameTemplate": "Frequency Flip - {number:02d} - {genre}",
+      "startNumber": 1
+    },
+    {
+      "id": 15,
+      "lyricSearch": "",
+      "albumTemplate": "Heal Times Complete",
+      "songTemplate": "Heal Times Complete - {number:02d}",
+      "artistTemplate": "Graham Thomas",
+      "filenameTemplate": "Heal Times Complete - {number:02d} - {genre}",
+      "startNumber": 1
+    },
+    {
+      "id": 16,
+      "lyricSearch": "But I'd rather be the engine than just standing around.",
+      "albumTemplate": "I'd Rather Be The Engine",
+      "songTemplate": "I'd Rather Be The Engine - {number:02d}",
+      "artistTemplate": "Graham Thomas",
+      "filenameTemplate": "I'd Rather Be The Engine - {number:02d} - {genre}",
+      "startNumber": 1
+    },
+    {
+      "id": 17,
+      "lyricSearch": "",
+      "albumTemplate": "I'm Here To Say It Loud & Clear",
+      "songTemplate": "Say It Loud & Clear - {number:02d}",
+      "artistTemplate": "Graham Thomas",
+      "filenameTemplate": "Say It Loud & Clear - {number:02d} - {genre}",
+      "startNumber": 1
+    },
+    {
+      "id": 18,
+      "lyricSearch": "",
+      "albumTemplate": "I Am Awash In It's Light",
+      "songTemplate": "Awash In Light - {number:02d}",
+      "artistTemplate": "Graham Thomas",
+      "filenameTemplate": "Awash In Light - {number:02d} - {genre}",
+      "startNumber": 1
+    },
+    {
+      "id": 19,
+      "lyricSearch": "",
+      "albumTemplate": "I Coded The Machine",
+      "songTemplate": "I Coded The Machine - {number:02d}",
+      "artistTemplate": "Graham Thomas",
+      "filenameTemplate": "I Coded The Machine - {number:02d} - {genre}",
+      "startNumber": 1
+    },
+    {
+      "id": 20,
+      "lyricSearch": "",
+      "albumTemplate": "Ignition Orb",
+      "songTemplate": "Ignition Orb - {number:02d}",
+      "artistTemplate": "Graham Thomas",
+      "filenameTemplate": "Ignition Orb - {number:02d} - {genre}",
+      "startNumber": 1
+    },
+    {
+      "id": 21,
+      "lyricSearch": "",
+      "albumTemplate": "I Laid The Lines",
+      "songTemplate": "I Laid The Lines - {number:02d}",
+      "artistTemplate": "Graham Thomas",
+      "filenameTemplate": "I Laid The Lines - {number:02d} - {genre}",
+      "startNumber": 1
+    },
+    {
+      "id": 22,
+      "lyricSearch": "",
+      "albumTemplate": "Instrumental Only",
+      "songTemplate": "Instrumental Only - {number:02d}",
+      "artistTemplate": "Graham Thomas",
+      "filenameTemplate": "Instrumental Only - {number:02d} - {genre}",
+      "startNumber": 1
+    },
+    {
+      "id": 23,
+      "lyricSearch": "",
+      "albumTemplate": "My Body Is So Healthy",
+      "songTemplate": "My Body Is So Healthy - {number:02d}",
+      "artistTemplate": "Graham Thomas",
+      "filenameTemplate": "My Body Is So Healthy - {number:02d} - {genre}",
+      "startNumber": 1
+    },
+    {
+      "id": 24,
+      "lyricSearch": "",
+      "albumTemplate": "My True Name",
+      "songTemplate": "My True Name - {number:02d}",
+      "artistTemplate": "Graham Thomas",
+      "filenameTemplate": "My True Name - {number:02d} - {genre}",
+      "startNumber": 1
+    },
+    {
+      "id": 25,
+      "lyricSearch": "",
+      "albumTemplate": "Om Mani Padme Hum",
+      "songTemplate": "Om Mani Padme Hum - {number:02d}",
+      "artistTemplate": "Graham Thomas",
+      "filenameTemplate": "Om Mani Padme Hum - {number:02d} - {genre}",
+      "startNumber": 1
+    },
+    {
+      "id": 26,
+      "lyricSearch": "",
+      "albumTemplate": "Pure Awareness I AM",
+      "songTemplate": "Pure Awareness I AM - {number:02d}",
+      "artistTemplate": "Graham Thomas",
+      "filenameTemplate": "Pure Awareness I AM - {number:02d} - {genre}",
+      "startNumber": 1
+    },
+    {
+      "id": 27,
+      "lyricSearch": "",
+      "albumTemplate": "Smooth As Butter",
+      "songTemplate": "Smooth As Butter - {number:02d}",
+      "artistTemplate": "Graham Thomas",
+      "filenameTemplate": "Smooth As Butter - {number:02d} - {genre}",
+      "startNumber": 1
+    },
+    {
+      "id": 28,
+      "lyricSearch": "",
+      "albumTemplate": "Swift In The Ether",
+      "songTemplate": "Swift In The Ether - {number:02d}",
+      "artistTemplate": "Graham Thomas",
+      "filenameTemplate": "Swift In The Ether - {number:02d} - {genre}",
+      "startNumber": 1
+    },
+    {
+      "id": 29,
+      "lyricSearch": "",
+      "albumTemplate": "The Code Written By Soul Power",
+      "songTemplate": "Code Written By Soul Power - {number:02d}",
+      "artistTemplate": "Graham Thomas",
+      "filenameTemplate": "Code Written By Soul Power - {number:02d} - {genre}",
+      "startNumber": 1
+    },
+    {
+      "id": 30,
+      "lyricSearch": "",
+      "albumTemplate": "The Full Immersion",
+      "songTemplate": "The Full Immersion - {number:02d}",
+      "artistTemplate": "Graham Thomas",
+      "filenameTemplate": "The Full Immersion - {number:02d} - {genre}",
+      "startNumber": 1
+    },
+    {
+      "id": 31,
+      "lyricSearch": "",
+      "albumTemplate": "The Inside Out",
+      "songTemplate": "The Inside Out - {number:02d}",
+      "artistTemplate": "Graham Thomas",
+      "filenameTemplate": "The Inside Out - {number:02d} - {genre}",
+      "startNumber": 1
+    },
+    {
+      "id": 32,
+      "lyricSearch": "",
+      "albumTemplate": "The Me's Times Complete",
+      "songTemplate": "The Me's Times Complete - {number:02d}",
+      "artistTemplate": "Graham Thomas",
+      "filenameTemplate": "The Me's Times Complete - {number:02d} - {genre}",
+      "startNumber": 1
+    },
+    {
+      "id": 33,
+      "lyricSearch": "",
+      "albumTemplate": "The Me's Times Infinity",
+      "songTemplate": "The Me's Times Infinity - {number:02d}",
+      "artistTemplate": "Graham Thomas",
+      "filenameTemplate": "The Me's Times Infinity - {number:02d} - {genre}",
+      "startNumber": 1
+    },
+    {
+      "id": 34,
+      "lyricSearch": "",
+      "albumTemplate": "The Universes Most Exclusive Door",
+      "songTemplate": "Most Exclusive Door - {number:02d}",
+      "artistTemplate": "Graham Thomas",
+      "filenameTemplate": "Most Exclusive Door - {number:02d} - {genre}",
+      "startNumber": 1
+    },
+    {
+      "id": 35,
+      "lyricSearch": "",
+      "albumTemplate": "The World Outside's A Storm",
+      "songTemplate": "World Outside's A Storm - {number:02d}",
+      "artistTemplate": "Graham Thomas",
+      "filenameTemplate": "World Outside's A Storm - {number:02d} - {genre}",
+      "startNumber": 1
+    },
+    {
+      "id": 36,
+      "lyricSearch": "",
+      "albumTemplate": "True Science",
+      "songTemplate": "True Science - {number:02d}",
+      "artistTemplate": "Graham Thomas",
+      "filenameTemplate": "True Science - {number:02d} - {genre}",
+      "startNumber": 1
+    },
+    {
+      "id": 37,
+      "lyricSearch": "",
+      "albumTemplate": "Woke Up This Morning Rap",
+      "songTemplate": "Woke Up This Morning Rap - {number:02d}",
+      "artistTemplate": "Graham Thomas",
+      "filenameTemplate": "Woke Up This Morning Rap - {number:02d} - {genre}",
+      "startNumber": 1
+    }
+  ]
+}
