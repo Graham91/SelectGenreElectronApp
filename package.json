@@ -19,7 +19,8 @@
   "license": "MIT",
   "dependencies": {
     "electron-squirrel-startup": "^1.0.1",
-    "node-id3": "^0.2.9"
+    "node-id3": "^0.2.9",
+    "puppeteer": "^21.5.2"
   },
   "devDependencies": {
     "@electron-forge/cli": "^7.10.2",

@@ -2,7 +2,7 @@
 
 ## 📋 **Overview**
 
-The MP3 Genre Cleaner is an advanced Electron application designed to clean up AI-generated music metadata and provide sophisticated file renaming capabilities based on lyric content. The app features a comprehensive tabbed interface with three main functions: metadata viewing, genre cleaning, and intelligent file renaming using lyric search patterns.
+The MP3 Genre Cleaner is an advanced Electron application designed to clean up AI-generated music metadata, provide sophisticated file renaming capabilities based on lyric content, and automatically scrape missing lyrics and genres from Suno.com URLs. The app features a comprehensive tabbed interface with four main functions: metadata viewing, genre cleaning, intelligent file renaming using lyric search patterns, and automated web scraping for missing metadata.
 
 ## 🎯 **Primary Use Cases**
 
@@ -18,12 +18,16 @@ Advanced template-based file renaming system that searches song lyrics for speci
 
 **NEW: Enhanced Multi-Search Support** - Each rule now supports multiple lyric search strings, allowing songs with slight lyrical variations to be captured under the same rule while maintaining consistent numbering within that rule.
 
+### **3. Automated Metadata Scraping**
+**NEW: Web Scraping Integration** - Automatically extract missing lyrics and genres directly from Suno.com URLs stored in MP3 metadata. Uses browser automation to respectfully gather data while maintaining server courtesy with built-in delays and smart processing.
+
 ## 🏗️ **Application Architecture**
 
 ### **Technology Stack**
 - **Frontend**: HTML, CSS, JavaScript (Vanilla)
 - **Backend**: Node.js with Electron
 - **MP3 Metadata**: NodeID3 library
+- **Web Scraping**: Puppeteer for browser automation
 - **File System**: Node.js fs module
 - **UI Framework**: Custom tabbed interface
 
@@ -46,7 +50,7 @@ SelectGenreApp/
 ### **Main Layout**
 1. **Header**: Application title with gradient background
 2. **Controls Bar**: Folder selection button and status display  
-3. **Tabbed Interface**: Three main functional areas with visual toggle controls
+3. **Tabbed Interface**: Four main functional areas with visual toggle controls
 
 ### **Tab 1: 📋 View Metadata**
 - **Purpose**: Browse and review all MP3 files and their metadata
@@ -56,6 +60,8 @@ SelectGenreApp/
   - **Sortable Columns**: Click headers to sort by Title or Album
   - **Expandable Lyrics**: Click "Show" to view full song lyrics
   - **Album Art Display**: Clickable thumbnails with modal view
+  - **NEW: Scraper Integration**: "🔍 Get Lyrics" buttons for files missing lyrics (auto-switches to scraper tab)
+  - **Real-time Status**: Buttons show "In process, please wait..." during active scraping
   - Displays: Album Art, Filename, Genres, Title, Artist, Album, Lyrics
   - File counter and sorting controls
   - Optimized for handling thousands of files
@@ -81,6 +87,18 @@ SelectGenreApp/
   - **Batch Processing**: Apply all rules and rename multiple files at once
   - **Enhanced UI**: Rules stay expanded during editing, with real-time preview updates
 
+### **Tab 4: 🔍 Get lyrics and Genres**
+- **Purpose**: Automatically scrape missing lyrics and genres from Suno.com URLs
+- **Features**:
+  - **Automated Web Scraping**: Uses Puppeteer to extract data from Suno.com pages
+  - **Smart File Processing**: Only processes files that actually need lyrics/genres
+  - **Real-time Logging**: Live progress updates with detailed success/error reporting  
+  - **Server Courtesy**: Built-in delays (2-5 seconds) and memory management every 100 files
+  - **Progress Tracking**: Visual statistics showing successful, failed, and skipped files
+  - **Auto-refresh Integration**: Automatically updates metadata view after completion
+  - **Comprehensive Help**: Detailed usage guidelines and best practices
+  - **Stop/Start Controls**: Full control over scraping process with graceful stopping
+
 ## 🔧 **Core Functionality**
 
 ### **1. Folder Selection & MP3 Reading**
@@ -95,10 +113,24 @@ SelectGenreApp/
 - **Column Visibility System**: Toggle any column on/off with eye icons
 - **Album Art Integration**: Displays thumbnails with click-to-expand modal view  
 - **Lyrics Integration**: Expandable lyrics display with full-text viewing
+- **Scraper Integration**: Dynamic "🔍 Get Lyrics" buttons for files missing lyrics
+- **Real-time Updates**: Button states update during scraping operations
 - **Sorting Capabilities**: Multi-column sorting with visual indicators
 - **Responsive Layout**: Adapts to different screen sizes and column configurations
 
-### **2. Genre Processing Logic**
+### **3. Automated Web Scraping System**
+- **URL Detection**: Automatically finds Suno.com URLs in MP3 metadata (`audioSourceUrl` field)
+- **Browser Automation**: Uses Puppeteer to launch Chrome and navigate to Suno pages
+- **Data Extraction**: Locates and extracts lyrics and genre information from page elements
+- **Metadata Integration**: Updates MP3 files with scraped lyrics and genres using NodeID3
+- **Smart Processing**: Skips files that already have complete lyrics and genres
+- **Server Courtesy**: Implements 2-5 second random delays between requests
+- **Memory Management**: Restarts browser every 100 files to prevent memory issues
+- **Error Handling**: Graceful failure handling with detailed logging
+- **Progress Tracking**: Real-time statistics and file processing updates
+- **Auto-refresh**: Automatically updates metadata view after successful completion
+
+### **4. Genre Processing Logic**
 - **Genre Parsing**: Splits genre strings on `"; "` delimiter
 - **Deduplication**: Creates unique set of all genres found
 - **Sorting**: Alphabetical order for consistent UI
@@ -311,6 +343,12 @@ Lyric Searches:
 - `apply-naming-changes`: Executes file renaming and metadata updates based on rules
 - `save-naming-rules`: Exports naming rules to JSON file with dialog
 - `load-naming-rules`: Imports naming rules from JSON file with dialog
+- `start-scraping`: Initiates web scraping process for missing lyrics/genres
+- `stop-scraping`: Gracefully stops the active scraping process
+
+### **Renderer → Main Process (Events)**
+- `scraping-log`: Real-time log messages during scraping operations
+- `scraping-progress`: Progress updates with statistics and completion status
 
 ### **Data Structures**
 ```javascript
@@ -368,15 +406,23 @@ Lyric Searches:
 3. **Edge Cases**: Files with 1, 2, 3+ genres and various removal scenarios
 4. **Error Handling**: Corrupted files, permission issues, disk space
 
-## 🚀 **Recent Enhancements (v2.1)**
+## 🚀 **Recent Enhancements (v3.0 - Scraper Integration)**
 
-### **Completed Features**
-- ✅ **Multiple Lyric Search Strings**: Each rule now supports multiple search patterns
-- ✅ **Smart Filename Conflict Resolution**: Automatic sequence detection and numbering
-- ✅ **Enhanced UI Experience**: Rules stay expanded, real-time preview updates
-- ✅ **Custom Alert System**: Prevents Electron input focus issues
-- ✅ **Backward Compatibility**: Seamless loading of old single-search rule files
-- ✅ **Improved Error Handling**: User-friendly custom modal dialogs
+### **✅ NEW: Complete Web Scraping System**
+- **Automated Metadata Extraction**: Full Puppeteer integration for Suno.com scraping
+- **Smart Lyrics Buttons**: Dynamic "🔍 Get Lyrics" buttons in metadata view for missing lyrics
+- **Real-time Progress Tracking**: Live logging and statistics during scraping operations
+- **Server Courtesy Features**: Built-in delays, memory management, and best practices guidance
+- **Auto-refresh Integration**: Metadata view updates automatically after scraping completion
+- **Comprehensive Help System**: Detailed usage guidelines and courtesy recommendations
+
+### **✅ Previous Features (v2.1)**
+- **Multiple Lyric Search Strings**: Each rule now supports multiple search patterns
+- **Smart Filename Conflict Resolution**: Automatic sequence detection and numbering
+- **Enhanced UI Experience**: Rules stay expanded, real-time preview updates
+- **Custom Alert System**: Prevents Electron input focus issues
+- **Backward Compatibility**: Seamless loading of old single-search rule files
+- **Improved Error Handling**: User-friendly custom modal dialogs
 
 ### **Future Enhancement Areas**
 
@@ -457,6 +503,7 @@ Lyric Searches:
 ```json
 {
   "node-id3": "^0.2.3",        // MP3 metadata reading/writing
+  "puppeteer": "^21.5.2",      // Web scraping and browser automation
   "electron": "^39.2.7",       // Desktop app framework  
   "electron-forge": "^7.10.2"  // Build and packaging tools
 }
@@ -479,11 +526,13 @@ node generate-test-data.js  # Create test MP3 files
 
 ---
 
-**Last Updated**: December 21, 2025  
-**Version**: 2.1.0 - Enhanced Multi-Search Support with Smart Conflict Resolution  
+**Last Updated**: December 22, 2025  
+**Version**: 3.0.0 - Complete Web Scraping Integration  
 **Author**: Built for AI-generated music cleanup workflows and advanced metadata management
 
 ### **Version History**
-- **v2.1.0** (Dec 2025): Multiple lyric searches per rule, smart filename conflict resolution, enhanced UI stability
+- **v3.0.0** (Dec 22, 2025): Full web scraping integration with Puppeteer, automated Suno.com lyrics/genre extraction, smart UI integration
+- **v2.1.0** (Dec 21, 2025): Multiple lyric searches per rule, smart filename conflict resolution, enhanced UI stability
 - **v2.0.0** (Dec 2025): Major update with Naming via Lyrics functionality  
+- **v1.0.0** (Initial): Core MP3 metadata reading and genre cleaning functionality  
 - **v1.0.0** (Initial): Core MP3 metadata reading and genre cleaning functionality

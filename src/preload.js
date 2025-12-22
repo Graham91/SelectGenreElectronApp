@@ -9,7 +9,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   previewNamingChanges: (namingRules, filesData) => ipcRenderer.invoke('preview-naming-changes', namingRules, filesData),
   applyNamingChanges: (namingRules, filesData) => ipcRenderer.invoke('apply-naming-changes', namingRules, filesData),
   saveNamingRules: (rulesData) => ipcRenderer.invoke('save-naming-rules', rulesData),
-  loadNamingRules: () => ipcRenderer.invoke('load-naming-rules')
+  loadNamingRules: () => ipcRenderer.invoke('load-naming-rules'),
+  
+  // Scraper IPC methods
+  startScraping: (folderPath) => ipcRenderer.invoke('start-scraping', folderPath),
+  stopScraping: () => ipcRenderer.invoke('stop-scraping'),
+  onScrapingLog: (callback) => ipcRenderer.on('scraping-log', callback),
+  onScrapingProgress: (callback) => ipcRenderer.on('scraping-progress', callback),
+  removeScrapingListeners: () => {
+    ipcRenderer.removeAllListeners('scraping-log');
+    ipcRenderer.removeAllListeners('scraping-progress');
+  }
 });
 
 // See the Electron documentation for details on how to use preload scripts:

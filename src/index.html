@@ -24,6 +24,7 @@
           <button class="tab-button active" data-tab="metadata">📋 View Metadata</button>
           <button class="tab-button" data-tab="cleanup">🧹 Clean Genres</button>
           <button class="tab-button" data-tab="naming">🎵 Naming via Lyrics</button>
+          <button class="tab-button" data-tab="scraper">🔍 Get lyrics and Genres</button>
         </div>
         
         <!-- Metadata Tab -->
@@ -137,6 +138,73 @@
             </div>
           </div>
         </div>
+        
+        <!-- Scraper Tab -->
+        <div id="scraper-tab" class="tab-content">
+          <div class="tab-header">
+            <h2>🔍 Get lyrics and Genres</h2>
+            <div class="scraper-description">
+              <p><strong>How it works:</strong> This scraper automatically extracts lyrics and genres from Suno.com URLs stored in your MP3 files' metadata.</p>
+              
+              <div class="scraper-info-box">
+                <h3>📖 How the Scraper Functions</h3>
+                <ul>
+                  <li><strong>Reads Suno URLs:</strong> Checks each MP3 file for embedded Suno.com links in the metadata</li>
+                  <li><strong>Web Automation:</strong> Uses Puppeteer (a browser automation tool) to visit each Suno page</li>
+                  <li><strong>Data Extraction:</strong> Automatically finds and copies the lyrics and genre tags from the page</li>
+                  <li><strong>Metadata Update:</strong> Writes the extracted information back to your MP3 files' ID3 tags</li>
+                  <li><strong>Smart Skipping:</strong> Automatically skips files that already have complete lyrics and genres</li>
+                </ul>
+              </div>
+              
+              <div class="scraper-courtesy-box">
+                <h3>🤝 Server Courtesy & Best Practices</h3>
+                <p><strong>We've designed this scraper to be respectful to Suno's servers:</strong></p>
+                <ul>
+                  <li>⏱️ <strong>Random delays:</strong> Waits 2-5 seconds between each request (like a human would)</li>
+                  <li>🔄 <strong>Memory management:</strong> Restarts browser every 100 files to prevent crashes</li>
+                  <li>🎯 <strong>Targeted scraping:</strong> Only processes files that actually need lyrics/genres</li>
+                </ul>
+                
+                <div class="courtesy-request">
+                  <p><strong>⚠️ Please be courteous:</strong></p>
+                  <ul>
+                    <li>🚫 <strong>Don't process more than 2,000 songs at once</strong> - break large collections into smaller batches</li>
+                    <li>⏳ <strong>Don't run multiple instances</strong> of the scraper simultaneously</li>
+                    <li>�️ <strong>Don't click on the Chrome tab</strong> that opens while scraping - let it run automatically</li>
+                    <li>�🕐 <strong>Consider running during off-peak hours</strong> if processing many files</li>
+                    <li>⛔ <strong>Stop the scraper</strong> if you encounter errors or rate limiting</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="scraper-stats">
+            <span id="scraperFileCount">0 files to process</span>
+            <span id="scraperProgress">Ready to start</span>
+          </div>
+          
+          <div class="scraper-controls">
+            <button id="startScrapingBtn" class="primary-btn" disabled>🚀 Start Scraping</button>
+            <button id="stopScrapingBtn" class="secondary-btn" disabled>⏹️ Stop Scraping</button>
+            <button id="clearLogBtn" class="tertiary-btn">🗑️ Clear Log</button>
+          </div>
+          
+          <div class="scraper-log-container">
+            <div class="scraper-log-header">
+              <h3>Scraping Log</h3>
+              <div class="log-stats">
+                <span id="successCount">✅ 0 successful</span>
+                <span id="errorCount">❌ 0 errors</span>
+                <span id="skippedCount">⏭️ 0 skipped</span>
+              </div>
+            </div>
+            <div id="scraperLog" class="scraper-log">
+              <p class="log-entry info">Select a folder and click "Start Scraping" to begin processing files...</p>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
     
@@ -195,6 +263,7 @@
       let currentTab = 'metadata';
       let sortColumn = null;
       let sortDirection = 'asc';
+      let isScrapingInProgress = false; // Track scraping state globally
       let visibleColumns = {
         art: true,
         filename: true,
@@ -241,22 +310,6 @@
           });
         });
         
-        function switchTab(tabName) {
-          // Update tab buttons
-          document.querySelectorAll('.tab-button').forEach(btn => {
-            btn.classList.remove('active');
-          });
-          document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
-          
-          // Update tab content
-          document.querySelectorAll('.tab-content').forEach(content => {
-            content.classList.remove('active');
-          });
-          document.getElementById(`${tabName}-tab`).classList.add('active');
-          
-          currentTab = tabName;
-        }
-        
         selectFolderBtn.addEventListener('click', async () => {
           try {
             const folderPath = await window.electronAPI.selectFolder();
@@ -284,6 +337,7 @@
                 extractGenres();
                 displayGenreToggles();
                 updateStats();
+                updateScraperControls(true, mp3Data.length); // Enable scraper tab when files are loaded
                 mainContent.classList.remove('hidden');
                 // Start on metadata tab
                 switchTab('metadata');
@@ -342,6 +396,17 @@
               : file.lyrics || 'No lyrics';
             
             const hasLyrics = file.lyrics && file.lyrics.length > 15;
+            const hasNoLyrics = !file.lyrics || file.lyrics.trim() === '';
+            
+            // Create scraper link button for files with no lyrics
+            let scraperButton = '';
+            if (hasNoLyrics) {
+              if (isScrapingInProgress) {
+                scraperButton = '<button class="scraper-link-btn processing" disabled>In process, please wait...</button>';
+              } else {
+                scraperButton = '<button class="scraper-link-btn" onclick="goToScraperTab()">🔍 Get Lyrics</button>';
+              }
+            }
             
             // Album art display
             const albumArtHtml = file.albumArt 
@@ -359,6 +424,7 @@
               <td class="lyrics-cell col-lyrics">
                 <div class="lyrics-preview">${lyricsPreview}</div>
                 ${hasLyrics ? `<button class="show-lyrics-btn" onclick="toggleLyrics(${file.originalIndex || index})">Show</button>` : ''}
+                ${scraperButton}
               </td>
             </tr>`;
             
@@ -552,9 +618,239 @@
         function getCurrentData() {
           return mp3Data.slice(); // Return a copy
         }
+        
+        // Scraper Tab Functionality
+        const startScrapingBtn = document.getElementById('startScrapingBtn');
+        const stopScrapingBtn = document.getElementById('stopScrapingBtn');
+        const clearLogBtn = document.getElementById('clearLogBtn');
+        const scraperLog = document.getElementById('scraperLog');
+        const scraperFileCount = document.getElementById('scraperFileCount');
+        const scraperProgress = document.getElementById('scraperProgress');
+        const successCount = document.getElementById('successCount');
+        const errorCount = document.getElementById('errorCount');
+        const skippedCount = document.getElementById('skippedCount');
+        
+        let scraperStats = {
+          successful: 0,
+          errors: 0,
+          skipped: 0,
+          isRunning: false
+        };
+        
+        // Enable scraper controls when folder is selected
+        function updateScraperControls(folderSelected = false, filesCount = 0) {
+          startScrapingBtn.disabled = !folderSelected || scraperStats.isRunning;
+          scraperFileCount.textContent = folderSelected ? `${filesCount} files to process` : '0 files to process';
+        }
+        
+        // Add log entry to scraper log
+        function addLogEntry(type, message, filename = '', timestamp = '') {
+          const logEntry = document.createElement('div');
+          logEntry.className = `log-entry ${type}`;
+          
+          let content = '';
+          if (timestamp) {
+            content += `<span class="timestamp">${timestamp}</span>`;
+          }
+          if (filename) {
+            content += `<span class="filename">${filename}</span>: `;
+          }
+          content += message;
+          
+          logEntry.innerHTML = content;
+          scraperLog.appendChild(logEntry);
+          
+          // Auto-scroll to bottom
+          scraperLog.scrollTop = scraperLog.scrollHeight;
+        }
+        
+        // Update scraper statistics display
+        function updateScraperStats() {
+          successCount.textContent = `✅ ${scraperStats.successful} successful`;
+          errorCount.textContent = `❌ ${scraperStats.errors} errors`;
+          skippedCount.textContent = `⏭️ ${scraperStats.skipped} skipped`;
+        }
+        
+        // Start scraping button handler
+        startScrapingBtn.addEventListener('click', async () => {
+          const folderPath = selectedPath.textContent;
+          if (!folderPath || folderPath === 'No folder selected') {
+            customAlert('Please select a folder first');
+            return;
+          }
+          
+          // Reset stats
+          scraperStats = { successful: 0, errors: 0, skipped: 0, isRunning: true };
+          updateScraperStats();
+          
+          // Update UI state
+          startScrapingBtn.disabled = true;
+          stopScrapingBtn.disabled = false;
+          scraperProgress.textContent = 'Starting scraper...';
+          
+          addLogEntry('info', 'Starting scraping process...');
+          
+          try {
+            const result = await window.electronAPI.startScraping(folderPath);
+            if (result.success) {
+              addLogEntry('info', 'Scraping completed successfully');
+              scraperStats = { 
+                successful: result.stats.successful, 
+                errors: result.stats.errors, 
+                skipped: result.stats.skipped, 
+                isRunning: false 
+              };
+              updateScraperStats();
+              
+              // Refresh metadata if any files were successfully processed
+              if (result.stats.successful > 0) {
+                addLogEntry('info', 'Refreshing metadata view...');
+                try {
+                  // Reload MP3 metadata
+                  mp3Data = await window.electronAPI.readMP3Metadata(folderPath);
+                  // Add original indices for tracking after sorting
+                  mp3Data.forEach((file, index) => {
+                    file.originalIndex = index;
+                  });
+                  
+                  // Update displays
+                  displayFiles();
+                  extractGenres();
+                  displayGenreToggles();
+                  updateStats();
+                  
+                  addLogEntry('success', `Metadata refreshed! Updated ${result.stats.successful} files with new lyrics and genres`);
+                } catch (refreshError) {
+                  addLogEntry('error', `Error refreshing metadata: ${refreshError.message}`);
+                }
+              }
+            } else {
+              addLogEntry('error', `Scraping failed: ${result.error}`);
+            }
+          } catch (error) {
+            addLogEntry('error', `Scraping error: ${error.message}`);
+          } finally {
+            startScrapingBtn.disabled = false;
+            stopScrapingBtn.disabled = true;
+            scraperStats.isRunning = false;
+            scraperProgress.textContent = 'Ready to start';
+          }
+        });
+        
+        // Stop scraping button handler
+        stopScrapingBtn.addEventListener('click', async () => {
+          addLogEntry('warning', 'Stopping scraping process...');
+          try {
+            await window.electronAPI.stopScraping();
+            stopScrapingBtn.disabled = true;
+            startScrapingBtn.disabled = false;
+            scraperProgress.textContent = 'Stopped by user';
+            scraperStats.isRunning = false;
+            
+            // Refresh metadata if any files were successfully processed
+            if (scraperStats.successful > 0) {
+              addLogEntry('info', 'Refreshing metadata view...');
+              try {
+                const folderPath = selectedPath.textContent;
+                // Reload MP3 metadata
+                mp3Data = await window.electronAPI.readMP3Metadata(folderPath);
+                // Add original indices for tracking after sorting
+                mp3Data.forEach((file, index) => {
+                  file.originalIndex = index;
+                });
+                
+                // Update displays
+                displayFiles();
+                extractGenres();
+                displayGenreToggles();
+                updateStats();
+                
+                addLogEntry('success', `Metadata refreshed! Updated ${scraperStats.successful} files with new lyrics and genres`);
+              } catch (refreshError) {
+                addLogEntry('error', `Error refreshing metadata: ${refreshError.message}`);
+              }
+            }
+          } catch (error) {
+            addLogEntry('error', `Error stopping scraper: ${error.message}`);
+          }
+        });
+        
+        // Clear log button handler
+        clearLogBtn.addEventListener('click', () => {
+          scraperLog.innerHTML = '<p class="log-entry info">Log cleared. Select a folder and click "Start Scraping" to begin processing files...</p>';
+        });
+        
+        // Listen for scraping log messages
+        window.electronAPI.onScrapingLog((event, logData) => {
+          const { type, message, filename, url, timestamp } = logData;
+          addLogEntry(type, message, filename, timestamp);
+        });
+        
+        // Listen for scraping progress updates
+        window.electronAPI.onScrapingProgress((event, progressData) => {
+          const { total, processed, successful, errors, skipped, isRunning } = progressData;
+          
+          scraperStats.successful = successful;
+          scraperStats.errors = errors;
+          scraperStats.skipped = skipped;
+          scraperStats.isRunning = isRunning;
+          isScrapingInProgress = isRunning; // Update global state
+          
+          updateScraperStats();
+          
+          if (total > 0) {
+            const percentage = Math.round((processed / total) * 100);
+            scraperProgress.textContent = `Processing: ${processed}/${total} (${percentage}%)`;
+          }
+          
+          // Update button states
+          startScrapingBtn.disabled = isRunning;
+          stopScrapingBtn.disabled = !isRunning;
+          
+          // Refresh metadata display to update lyrics buttons
+          if (currentTab === 'metadata' && mp3Data.length > 0) {
+            displayFiles();
+          }
+        });
+        
+        // Update scraper controls when folder changes
+        const originalSelectFolderHandler = selectFolderBtn.onclick;
+        selectFolderBtn.addEventListener('click', async () => {
+          // Let the original handler run first
+          setTimeout(() => {
+            const folderSelected = selectedPath.textContent !== 'No folder selected';
+            const filesCount = mp3Data ? mp3Data.length : 0;
+            updateScraperControls(folderSelected, filesCount);
+          }, 100);
+        });
+        
+        // Initialize scraper tab state
+        updateScraperControls();
+        updateScraperStats();
+        
       });
       
       // Global functions that need to be accessible from HTML onclick handlers
+      window.switchTab = function(tabName) {
+        // Update tab buttons
+        document.querySelectorAll('.tab-button').forEach(btn => {
+          btn.classList.remove('active');
+        });
+        document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+        
+        // Update tab content
+        document.querySelectorAll('.tab-content').forEach(content => {
+          content.classList.remove('active');
+        });
+        document.getElementById(`${tabName}-tab`).classList.add('active');
+        
+        currentTab = tabName;
+      };
+      
+      window.goToScraperTab = function() {
+        switchTab('scraper');
+      };
+      
       window.displayFiles = function() {
         let html = '<div class="table-container"><table><thead><tr>' +
           '<th class="col-art">Art</th>' +

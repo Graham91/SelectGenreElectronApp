@@ -2,6 +2,7 @@ const { app, BrowserWindow, dialog, ipcMain } = require('electron');
 const path = require('node:path');
 const fs = require('fs');
 const NodeID3 = require('node-id3');
+const puppeteer = require('puppeteer');
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (require('electron-squirrel-startup')) {
@@ -592,3 +593,318 @@ function processTemplate(template, variables) {
 
 // In this file you can include the rest of your app's specific main process
 // code. You can also put them in separate files and import them here.
+
+// Scraper functionality
+let scraperState = {
+  isRunning: false,
+  browser: null,
+  currentWindow: null,
+  totalFiles: 0,
+  processedFiles: 0,
+  successfulFiles: 0,
+  errorFiles: 0,
+  skippedFiles: 0
+};
+
+// Helper function to send log messages to renderer
+function sendScrapingLog(type, message, filename = '', url = '') {
+  if (scraperState.currentWindow && !scraperState.currentWindow.isDestroyed()) {
+    const timestamp = new Date().toLocaleTimeString();
+    scraperState.currentWindow.webContents.send('scraping-log', {
+      type,
+      message,
+      filename,
+      url,
+      timestamp
+    });
+  }
+}
+
+// Helper function to send progress updates
+function sendScrapingProgress() {
+  if (scraperState.currentWindow && !scraperState.currentWindow.isDestroyed()) {
+    scraperState.currentWindow.webContents.send('scraping-progress', {
+      total: scraperState.totalFiles,
+      processed: scraperState.processedFiles,
+      successful: scraperState.successfulFiles,
+      errors: scraperState.errorFiles,
+      skipped: scraperState.skippedFiles,
+      isRunning: scraperState.isRunning
+    });
+  }
+}
+
+// Function to get Suno URL from file metadata
+function getSunoUrl(filePath) {
+  try {
+    const tags = NodeID3.read(filePath);
+    return tags.audioSourceUrl || null;
+  } catch (error) {
+    console.error('Error reading file:', error.message);
+    return null;
+  }
+}
+
+// Function to check if file already has genre and lyrics
+function hasGenreAndLyrics(filePath) {
+  try {
+    const tags = NodeID3.read(filePath);
+    const hasGenre = tags.genre && tags.genre.trim().length > 0;
+    const hasLyrics = tags.unsynchronisedLyrics && tags.unsynchronisedLyrics.text && tags.unsynchronisedLyrics.text.trim().length > 0;
+    return hasGenre && hasLyrics;
+  } catch (error) {
+    console.error('Error checking metadata:', error.message);
+    return false;
+  }
+}
+
+// Function to validate scraped data quality
+function validateScrapedData(scrapedData) {
+  if (!scrapedData) return false;
+
+  const hasValidGenres = scrapedData.genres &&
+    scrapedData.genres.found &&
+    scrapedData.genres.genres &&
+    scrapedData.genres.genres.length > 0;
+
+  const hasValidLyrics = scrapedData.lyrics &&
+    scrapedData.lyrics.found &&
+    scrapedData.lyrics.lyrics &&
+    scrapedData.lyrics.lyrics.length > 20;
+
+  return hasValidGenres || hasValidLyrics;
+}
+
+// Function to scrape a single Suno URL
+async function scrapeSunoUrl(browser, url, filePath) {
+  const page = await browser.newPage();
+
+  try {
+    sendScrapingLog('processing', `Scraping: ${url}`, path.basename(filePath), url);
+    await page.goto(url, { waitUntil: 'networkidle2' });
+
+    // Extract both genres and lyrics in one page evaluation
+    const songData = await page.evaluate(() => {
+      const buttons = Array.from(document.querySelectorAll('button'));
+
+      // Find genre info using "Copy styles to clipboard" button
+      let genreInfo = { found: false, error: 'Could not find genre info structure' };
+      const stylesButton = buttons.find(button => button.title === 'Copy styles to clipboard');
+
+      if (stylesButton) {
+        const parentDiv = stylesButton.parentElement;
+        const firstChild = parentDiv.firstElementChild.firstElementChild;
+
+        if (firstChild) {
+          const aTags = firstChild.querySelectorAll('a');
+          const genres = Array.from(aTags).map(a => a.textContent.trim());
+
+          genreInfo = {
+            found: true,
+            genres: genres,
+            genreCount: genres.length
+          };
+        }
+      }
+
+      // Find lyrics using "Copy lyrics to clipboard" button
+      let lyricsInfo = { found: false, error: 'Could not find lyrics structure' };
+      const lyricsButton = buttons.find(button => button.title === 'Copy lyrics to clipboard');
+
+      if (lyricsButton) {
+        const parentDiv = lyricsButton.parentElement;
+        const pTag = parentDiv.querySelector('p');
+
+        if (pTag) {
+          lyricsInfo = {
+            found: true,
+            lyrics: pTag.textContent.trim()
+          };
+        }
+      }
+
+      return {
+        genres: genreInfo,
+        lyrics: lyricsInfo
+      };
+    });
+
+    // Update MP3 metadata with scraped data
+    try {
+      const existingTags = NodeID3.read(filePath);
+      const updateTags = { ...existingTags };
+
+      let hasUpdates = false;
+
+      if (songData.genres.found && songData.genres.genres.length > 0) {
+        updateTags.genre = songData.genres.genres.join('; ');
+        hasUpdates = true;
+      }
+
+      if (songData.lyrics.found && songData.lyrics.lyrics) {
+        updateTags.unsynchronisedLyrics = {
+          language: 'eng',
+          text: songData.lyrics.lyrics
+        };
+        hasUpdates = true;
+      }
+
+      if (hasUpdates) {
+        const success = NodeID3.update(updateTags, filePath);
+        if (success) {
+          sendScrapingLog('success', `Successfully updated metadata`, path.basename(filePath));
+          return songData;
+        } else {
+          sendScrapingLog('error', `Failed to update metadata`, path.basename(filePath));
+          return null;
+        }
+      } else {
+        sendScrapingLog('warning', `No valid data found to update`, path.basename(filePath));
+        return null;
+      }
+
+    } catch (error) {
+      sendScrapingLog('error', `Error updating metadata: ${error.message}`, path.basename(filePath));
+      return null;
+    }
+
+  } catch (error) {
+    sendScrapingLog('error', `Scraping error: ${error.message}`, path.basename(filePath), url);
+    return null;
+  } finally {
+    await page.close();
+  }
+}
+
+// IPC handler to start scraping
+ipcMain.handle('start-scraping', async (event, folderPath) => {
+  if (scraperState.isRunning) {
+    return { success: false, error: 'Scraping is already running' };
+  }
+
+  try {
+    // Store current window reference for logging
+    scraperState.currentWindow = BrowserWindow.fromWebContents(event.sender);
+
+    // Get all MP3 files
+    const files = fs.readdirSync(folderPath);
+    const mp3Files = files.filter(file => file.toLowerCase().endsWith('.mp3'));
+    
+    scraperState.totalFiles = mp3Files.length;
+    scraperState.processedFiles = 0;
+    scraperState.successfulFiles = 0;
+    scraperState.errorFiles = 0;
+    scraperState.skippedFiles = 0;
+    scraperState.isRunning = true;
+
+    sendScrapingLog('info', `Found ${mp3Files.length} MP3 files to process`);
+    sendScrapingProgress();
+
+    // Create browser for scraping
+    scraperState.browser = await puppeteer.launch({ headless: false });
+    
+    // Process files
+    for (let i = 0; i < mp3Files.length && scraperState.isRunning; i++) {
+      const fileName = mp3Files[i];
+      const fullPath = path.join(folderPath, fileName);
+
+      sendScrapingLog('info', `Processing ${i + 1}/${mp3Files.length}`, fileName);
+
+      // Restart browser every 100 files for memory management
+      if (i > 0 && i % 100 === 0) {
+        sendScrapingLog('info', 'Restarting browser for memory management...');
+        await scraperState.browser.close();
+        scraperState.browser = await puppeteer.launch({ headless: false });
+      }
+
+      // Check if file already has genre and lyrics
+      if (hasGenreAndLyrics(fullPath)) {
+        sendScrapingLog('info', 'File already has genre and lyrics, skipping', fileName);
+        scraperState.skippedFiles++;
+        scraperState.processedFiles++;
+        sendScrapingProgress();
+        continue;
+      }
+
+      // Get Suno URL from metadata
+      const sunoUrl = getSunoUrl(fullPath);
+
+      if (sunoUrl && sunoUrl.includes('suno.com')) {
+        try {
+          const scrapedData = await scrapeSunoUrl(scraperState.browser, sunoUrl, fullPath);
+          
+          if (validateScrapedData(scrapedData)) {
+            scraperState.successfulFiles++;
+          } else {
+            scraperState.errorFiles++;
+            sendScrapingLog('warning', 'Scraped data validation failed', fileName);
+          }
+        } catch (error) {
+          scraperState.errorFiles++;
+          sendScrapingLog('error', `Error processing file: ${error.message}`, fileName);
+        }
+      } else {
+        scraperState.skippedFiles++;
+        sendScrapingLog('info', 'No Suno URL found, skipping', fileName);
+      }
+
+      scraperState.processedFiles++;
+      sendScrapingProgress();
+
+      // Add delay between requests (2-5 seconds)
+      if (i < mp3Files.length - 1 && scraperState.isRunning) {
+        const delay = Math.floor(Math.random() * 3000) + 2000;
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+
+    // Close browser
+    if (scraperState.browser) {
+      await scraperState.browser.close();
+      scraperState.browser = null;
+    }
+
+    scraperState.isRunning = false;
+    
+    sendScrapingLog('info', `Session complete! Processed: ${scraperState.successfulFiles}, Errors: ${scraperState.errorFiles}, Skipped: ${scraperState.skippedFiles}`);
+    sendScrapingProgress();
+    
+    return { 
+      success: true, 
+      stats: {
+        total: scraperState.totalFiles,
+        processed: scraperState.processedFiles,
+        successful: scraperState.successfulFiles,
+        errors: scraperState.errorFiles,
+        skipped: scraperState.skippedFiles
+      }
+    };
+
+  } catch (error) {
+    scraperState.isRunning = false;
+    if (scraperState.browser) {
+      await scraperState.browser.close();
+      scraperState.browser = null;
+    }
+    sendScrapingLog('error', `Scraping failed: ${error.message}`);
+    return { success: false, error: error.message };
+  }
+});
+
+// IPC handler to stop scraping
+ipcMain.handle('stop-scraping', async () => {
+  scraperState.isRunning = false;
+  
+  if (scraperState.browser) {
+    try {
+      await scraperState.browser.close();
+      scraperState.browser = null;
+      sendScrapingLog('info', 'Scraping stopped by user');
+    } catch (error) {
+      console.error('Error stopping browser:', error);
+    }
+  }
+  
+  sendScrapingProgress();
+  return { success: true };
+});
