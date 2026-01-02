@@ -57,7 +57,7 @@ ipcMain.handle('select-folder', async () => {
   const result = await dialog.showOpenDialog({
     properties: ['openDirectory']
   });
-  
+
   if (!result.canceled && result.filePaths.length > 0) {
     return result.filePaths[0];
   }
@@ -69,14 +69,14 @@ ipcMain.handle('read-mp3-metadata', async (event, folderPath) => {
   try {
     const files = fs.readdirSync(folderPath);
     const mp3Files = files.filter(file => path.extname(file).toLowerCase() === '.mp3');
-    
+
     const results = [];
-    
+
     for (const mp3File of mp3Files) {
       const filePath = path.join(folderPath, mp3File);
       try {
         const tags = NodeID3.read(filePath);
-        
+
         // Handle album artwork
         let albumArt = null;
         if (tags.image && tags.image.imageBuffer) {
@@ -84,7 +84,7 @@ ipcMain.handle('read-mp3-metadata', async (event, folderPath) => {
           const mimeType = tags.image.mime || 'image/jpeg';
           albumArt = `data:${mimeType};base64,${imageBuffer.toString('base64')}`;
         }
-        
+
         results.push({
           filename: mp3File,
           filePath: filePath, // Include full path for writing back
@@ -109,7 +109,7 @@ ipcMain.handle('read-mp3-metadata', async (event, folderPath) => {
         });
       }
     }
-    
+
     return results;
   } catch (error) {
     console.error('Error reading folder:', error);
@@ -121,18 +121,18 @@ ipcMain.handle('read-mp3-metadata', async (event, folderPath) => {
 ipcMain.handle('update-mp3-genres', async (event, updates) => {
   try {
     const results = [];
-    
+
     for (const update of updates) {
       try {
         // Read current tags
         const tags = NodeID3.read(update.filePath);
-        
+
         // Update the genre
         tags.genre = update.newGenre;
-        
+
         // Write back to file
         const success = NodeID3.write(tags, update.filePath);
-        
+
         results.push({
           filename: update.filename,
           success: success,
@@ -147,7 +147,7 @@ ipcMain.handle('update-mp3-genres', async (event, updates) => {
         });
       }
     }
-    
+
     return results;
   } catch (error) {
     console.error('Error updating MP3 files:', error);
@@ -155,32 +155,60 @@ ipcMain.handle('update-mp3-genres', async (event, updates) => {
   }
 });
 
+// Progress tracking for naming operations
+let namingState = {
+  currentWindow: null,
+  isRunning: false
+};
+
+function sendNamingProgress(phase, message, currentStep = 0, totalSteps = 0, details = '') {
+  if (namingState.currentWindow) {
+    namingState.currentWindow.webContents.send('naming-progress', {
+      phase,
+      message,
+      currentStep,
+      totalSteps,
+      details,
+      timestamp: new Date().toISOString()
+    });
+  }
+}
+
 // Naming via Lyrics functionality
 ipcMain.handle('preview-naming-changes', async (event, namingRules, filesData) => {
   try {
+    // Set up progress tracking
+    namingState.currentWindow = BrowserWindow.fromWebContents(event.sender);
+    namingState.isRunning = true;
+
+    sendNamingProgress('starting', 'Initializing preview analysis...', 0, namingRules.length);
+
     const results = {
       totalMatches: 0,
       matches: []
     };
-    
-    for (const rule of namingRules) {
+
+    for (let ruleIndex = 0; ruleIndex < namingRules.length; ruleIndex++) {
+      const rule = namingRules[ruleIndex];
+      sendNamingProgress('processing', `Processing rule ${ruleIndex + 1}: ${rule.albumTemplate || 'Unnamed Rule'}`, ruleIndex + 1, namingRules.length);
       // Support both old format (lyricSearch) and new format (lyricSearches)
       let lyricSearches = rule.lyricSearches || [];
       if (rule.lyricSearch && !lyricSearches.length) {
         lyricSearches = [rule.lyricSearch]; // Backward compatibility
       }
-      
+
       // Skip rule if no valid searches
       const validSearches = lyricSearches.filter(search => search && search.trim() !== '');
       if (validSearches.length === 0) continue;
-      
-      let matchCount = 0;
-      
+
+      // Simple approach: collect files by album and number them sequentially
+      const albumFilesMap = new Map(); // album -> array of files
+      // Collect files that match this rule, grouped by album
       for (const file of filesData) {
         // Check if lyrics contain ANY of the search texts
         const lyrics = file.lyrics || '';
         const lyricsLower = lyrics.toLowerCase();
-        
+
         let foundMatch = false;
         for (const searchText of validSearches) {
           if (lyricsLower.includes(searchText.toLowerCase())) {
@@ -188,46 +216,95 @@ ipcMain.handle('preview-naming-changes', async (event, namingRules, filesData) =
             break;
           }
         }
-        
+
         if (foundMatch) {
-          matchCount++;
-          
-          // Generate templates with variables
+          // Generate album name for this file
           const variables = {
-            number: rule.startNumber + matchCount - 1,
+            number: 1, // placeholder
             artist: file.artist || 'Unknown Artist',
             title: file.title || 'Unknown Title',
             album: file.album || 'Unknown Album',
             genre: file.genre || 'Unknown',
             year: file.year || new Date().getFullYear()
           };
-          
-          // Process templates
-          const newArtist = processTemplate(rule.artistTemplate, variables);
-          const newTitle = processTemplate(rule.songTemplate, variables);
-          const newAlbum = processTemplate(rule.albumTemplate, variables);
-          const newFilename = processTemplate(rule.filenameTemplate, variables) + '.mp3';
-          
-          results.matches.push({
-            originalFilename: file.filename,
-            originalPath: file.filePath,
-            newFilename: newFilename || file.filename,
-            newArtist: newArtist || file.artist,
-            newTitle: newTitle || file.title,
-            newAlbum: newAlbum || file.album,
-            originalArtist: file.artist,
-            originalTitle: file.title,
-            originalAlbum: file.album,
-            ruleId: rule.id,
-            variables: variables
-          });
+
+          const targetAlbum = processTemplate(rule.albumTemplate || '{album}', variables);
+
+          // Add file to album group
+          if (!albumFilesMap.has(targetAlbum)) {
+            albumFilesMap.set(targetAlbum, []);
+          }
+          albumFilesMap.get(targetAlbum).push({ file, variables, targetAlbum });
         }
       }
+
+      // Process each album group and assign track numbers only to files that need them
+      for (const [albumName, albumFiles] of albumFilesMap) {
+        // First, check existing track numbers for files in this album
+        const existingTrackNumbers = new Set();
+        let highestTrackNumber = 0;
+        
+        albumFiles.forEach(entry => {
+          const existingTrackNumber = parseInt(entry.file.trackNumber) || 0;
+          if (existingTrackNumber > 0) {
+            existingTrackNumbers.add(existingTrackNumber);
+            highestTrackNumber = Math.max(highestTrackNumber, existingTrackNumber);
+          }
+        });
+        
+        // Sort files consistently (by title) for predictable numbering
+        albumFiles.sort((a, b) => (a.file.title || '').localeCompare(b.file.title || ''));
+        
+        // Assign track numbers  
+        let nextAvailableNumber = Math.max(highestTrackNumber + 1, rule.startNumber || 1);
+        
+        albumFiles.forEach((entry) => {
+          const existingTrackNumber = parseInt(entry.file.trackNumber) || 0;
+          
+          if (existingTrackNumber > 0) {
+            // Keep existing track number
+            entry.variables.number = existingTrackNumber;
+            console.log(`[PREVIEW] Keeping existing track number ${existingTrackNumber} for: ${entry.file.title}`);
+          } else {
+            // Assign new track number
+            entry.variables.number = nextAvailableNumber;
+            console.log(`[PREVIEW] Assigning new track number ${nextAvailableNumber} to: ${entry.file.title}`);
+            nextAvailableNumber++;
+          }
+
+          // Process templates with final assigned number
+          const newArtist = processTemplate(rule.artistTemplate, entry.variables);
+          const newTitle = processTemplate(rule.songTemplate, entry.variables);
+          const newAlbum = processTemplate(rule.albumTemplate, entry.variables);
+          const newFilename = processTemplate(rule.filenameTemplate, entry.variables) + '.mp3';
+
+          results.matches.push({
+            originalFilename: entry.file.filename,
+            originalPath: entry.file.filePath,
+            newFilename: newFilename || entry.file.filename,
+            newArtist: newArtist || entry.file.artist,
+            newTitle: newTitle || entry.file.title,
+            newAlbum: newAlbum || entry.file.album,
+            originalArtist: entry.file.artist,
+            originalTitle: entry.file.title,
+            originalAlbum: entry.file.album,
+            ruleId: rule.id,
+            variables: entry.variables
+          });
+        });
+
+        console.log(`[PREVIEW] Album "${albumName}": processed ${albumFiles.length} files (highest existing: ${highestTrackNumber}, next available: ${nextAvailableNumber})`);
+      }
     }
-    
+
     results.totalMatches = results.matches.length;
+    sendNamingProgress('complete', `Analysis complete! Found ${results.totalMatches} total matches`, namingRules.length, namingRules.length, `${results.matches.length} files will be processed`);
+    namingState.isRunning = false;
+
     return results;
   } catch (error) {
+    sendNamingProgress('error', `Error during analysis: ${error.message}`, 0, 0, error.stack);
+    namingState.isRunning = false;
     console.error('Error previewing naming changes:', error);
     throw error;
   }
@@ -235,30 +312,40 @@ ipcMain.handle('preview-naming-changes', async (event, namingRules, filesData) =
 
 ipcMain.handle('apply-naming-changes', async (event, namingRules, filesData) => {
   try {
+    // Set up progress tracking
+    namingState.currentWindow = BrowserWindow.fromWebContents(event.sender);
+    namingState.isRunning = true;
+
+    sendNamingProgress('starting', 'Initializing file updates...', 0, namingRules.length);
+
     // Generate preview data directly (don't register another handler)
     const previewResult = {
       totalMatches: 0,
       matches: []
     };
-    
-    for (const rule of namingRules) {
+
+    for (let ruleIndex = 0; ruleIndex < namingRules.length; ruleIndex++) {
+      const rule = namingRules[ruleIndex];
+      sendNamingProgress('processing', `Processing rule ${ruleIndex + 1}: ${rule.albumTemplate || 'Unnamed Rule'}`, ruleIndex + 1, namingRules.length);
       // Support both old format (lyricSearch) and new format (lyricSearches)
       let lyricSearches = rule.lyricSearches || [];
       if (rule.lyricSearch && !lyricSearches.length) {
         lyricSearches = [rule.lyricSearch]; // Backward compatibility
       }
-      
+
       // Skip rule if no valid searches
       const validSearches = lyricSearches.filter(search => search && search.trim() !== '');
       if (validSearches.length === 0) continue;
-      
-      let matchCount = 0;
-      
+
+      // Simple approach: collect files by album and number them sequentially
+      const albumFilesMap = new Map(); // album -> array of files
+
+      // Collect files that match this rule, grouped by album
       for (const file of filesData) {
         // Check if lyrics contain ANY of the search texts
         const lyrics = file.lyrics || '';
         const lyricsLower = lyrics.toLowerCase();
-        
+
         let foundMatch = false;
         for (const searchText of validSearches) {
           if (lyricsLower.includes(searchText.toLowerCase())) {
@@ -266,189 +353,218 @@ ipcMain.handle('apply-naming-changes', async (event, namingRules, filesData) => 
             break;
           }
         }
-        
+
         if (foundMatch) {
-          matchCount++;
-          
+          // Generate album name for this file
           const variables = {
-            number: rule.startNumber + matchCount - 1,
+            number: 1, // placeholder
             artist: file.artist || 'Unknown Artist',
             title: file.title || 'Unknown Title',
             album: file.album || 'Unknown Album',
             genre: file.genre || 'Unknown',
             year: file.year || new Date().getFullYear()
           };
-          
-          const newArtist = processTemplate(rule.artistTemplate, variables);
-          const newTitle = processTemplate(rule.songTemplate, variables);
-          const newAlbum = processTemplate(rule.albumTemplate, variables);
-          
-          // Only generate new filename if template is provided
-          let newFilename = file.filename; // Default to original
-          if (rule.filenameTemplate && rule.filenameTemplate.trim() !== '') {
-            const processedTemplate = processTemplate(rule.filenameTemplate, variables);
-            if (processedTemplate && processedTemplate.trim() !== '') {
-              newFilename = processedTemplate + '.mp3';
-            }
+
+          const targetAlbum = processTemplate(rule.albumTemplate || '{album}', variables);
+
+          // Add file to album group
+          if (!albumFilesMap.has(targetAlbum)) {
+            albumFilesMap.set(targetAlbum, []);
           }
-          
-          previewResult.matches.push({
-            originalFilename: file.filename,
-            originalPath: file.filePath,
-            newFilename: newFilename,
-            newArtist: newArtist || file.artist,
-            newTitle: newTitle || file.title,
-            newAlbum: newAlbum || file.album,
-            originalArtist: file.artist,
-            originalTitle: file.title,
-            originalAlbum: file.album,
-            ruleId: rule.id,
-            variables: variables
-          });
+          albumFilesMap.get(targetAlbum).push({ file, variables, targetAlbum });
         }
+      }
+
+      // Process each album group and assign track numbers only to files that need them
+      for (const [albumName, albumFiles] of albumFilesMap) {
+        // First, check existing track numbers for files in this album
+        const existingTrackNumbers = new Set();
+        let highestTrackNumber = 0;
+        
+        albumFiles.forEach(entry => {
+          const existingTrackNumber = parseInt(entry.file.trackNumber) || 0;
+          if (existingTrackNumber > 0) {
+            existingTrackNumbers.add(existingTrackNumber);
+            highestTrackNumber = Math.max(highestTrackNumber, existingTrackNumber);
+          }
+        });
+        
+        // Sort files consistently (by title) for predictable numbering
+        albumFiles.sort((a, b) => (a.file.title || '').localeCompare(b.file.title || ''));
+        
+        // Assign track numbers  
+        let nextAvailableNumber = Math.max(highestTrackNumber + 1, rule.startNumber || 1);
+        
+        albumFiles.forEach((entry) => {
+          const existingTrackNumber = parseInt(entry.file.trackNumber) || 0;
+          
+          if (existingTrackNumber > 0) {
+            // Keep existing track number
+            entry.variables.number = existingTrackNumber;
+            console.log(`[APPLY] Keeping existing track number ${existingTrackNumber} for: ${entry.file.title}`);
+          } else {
+            // Assign new track number
+            entry.variables.number = nextAvailableNumber;
+            console.log(`[APPLY] Assigning new track number ${nextAvailableNumber} to: ${entry.file.title}`);
+            nextAvailableNumber++;
+          }
+
+          // Process templates with final assigned number
+          const newArtist = processTemplate(rule.artistTemplate, entry.variables);
+          const newTitle = processTemplate(rule.songTemplate, entry.variables);
+          const newAlbum = processTemplate(rule.albumTemplate, entry.variables);
+          const newFilename = processTemplate(rule.filenameTemplate, entry.variables) + '.mp3';
+
+          previewResult.matches.push({
+            originalFilename: entry.file.filename,
+            originalPath: entry.file.filePath,
+            newFilename: newFilename || entry.file.filename,
+            newArtist: newArtist || entry.file.artist,
+            newTitle: newTitle || entry.file.title,
+            newAlbum: newAlbum || entry.file.album,
+            originalArtist: entry.file.artist,
+            originalTitle: entry.file.title,
+            originalAlbum: entry.file.album,
+            ruleId: rule.id,
+            variables: entry.variables
+          });
+        });
+
+        console.log(`[APPLY] Album "${albumName}": processed ${albumFiles.length} files (highest existing: ${highestTrackNumber}, next available: ${nextAvailableNumber})`);
       }
     }
     
     previewResult.totalMatches = previewResult.matches.length;
-    
-    let updated = 0;
-    const results = [];
-    
-    for (const match of previewResult.matches) {
+
+  let updated = 0;
+  const results = [];
+
+  sendNamingProgress('applying', `Updating ${previewResult.matches.length} files...`, 0, previewResult.matches.length);
+
+  for (let fileIndex = 0; fileIndex < previewResult.matches.length; fileIndex++) {
+    const match = previewResult.matches[fileIndex];
+
+    // Send progress update every 5 files
+    if (fileIndex % 5 === 0) {
+      sendNamingProgress('applying', `Updating files: ${fileIndex + 1}/${previewResult.matches.length}`, fileIndex + 1, previewResult.matches.length, `Current: ${match.originalFilename}`);
+    }
+    try {
+      // Check if file exists and is accessible
+      if (!fs.existsSync(match.originalPath)) {
+        console.error(`File not found: ${match.originalPath}`);
+        results.push({
+          filename: match.originalFilename,
+          success: false,
+          error: 'File not found'
+        });
+        continue;
+      }
+
+      // Read the current metadata with error handling
+      let tags;
       try {
-        // Check if file exists and is accessible
-        if (!fs.existsSync(match.originalPath)) {
-          console.error(`File not found: ${match.originalPath}`);
-          results.push({
-            filename: match.originalFilename,
-            success: false,
-            error: 'File not found'
-          });
-          continue;
-        }
+        tags = NodeID3.read(match.originalPath);
+      } catch (readError) {
+        console.error(`Error reading metadata from ${match.originalFilename}:`, readError);
+        results.push({
+          filename: match.originalFilename,
+          success: false,
+          error: 'Cannot read MP3 metadata - file may be corrupted or not a valid MP3'
+        });
+        continue;
+      }
 
-        // Read the current metadata with error handling
-        let tags;
-        try {
-          tags = NodeID3.read(match.originalPath);
-        } catch (readError) {
-          console.error(`Error reading metadata from ${match.originalFilename}:`, readError);
-          results.push({
-            filename: match.originalFilename,
-            success: false,
-            error: 'Cannot read MP3 metadata - file may be corrupted or not a valid MP3'
-          });
-          continue;
-        }
+      // Ensure tags object exists
+      if (!tags) {
+        tags = {};
+      }
 
-        // Ensure tags object exists
-        if (!tags) {
-          tags = {};
-        }
-        
-        // Update metadata fields
-        if (match.newArtist !== match.originalArtist) {
-          tags.artist = match.newArtist;
-        }
-        if (match.newTitle !== match.originalTitle) {
-          tags.title = match.newTitle;
-        }
-        if (match.newAlbum !== match.originalAlbum) {
-          tags.album = match.newAlbum;
-        }
-        
-        // Write updated metadata with error handling
-        try {
-          NodeID3.write(tags, match.originalPath);
-        } catch (writeError) {
-          console.error(`Error writing metadata to ${match.originalFilename}:`, writeError);
-          results.push({
-            filename: match.originalFilename,
-            success: false,
-            error: 'Cannot write MP3 metadata - file may be read-only or corrupted'
-          });
-          continue;
-        }
-        
-        // Rename file if filename template was provided
-        if (match.newFilename !== match.originalFilename) {
-          const dir = path.dirname(match.originalPath);
-          let newPath = path.join(dir, match.newFilename);
-          let finalFilename = match.newFilename;
-          
-          // Handle filename conflicts by finding next available number in sequence
-          if (fs.existsSync(newPath)) {
-            // Check if the filename template uses numbering
-            const rule = namingRules.find(r => r.id === match.ruleId);
-            if (rule && rule.filenameTemplate && rule.filenameTemplate.includes('{number')) {
-              // Extract the base pattern from the filename (everything except the number)
-              const originalNumber = match.variables.number;
-              
-              // Find all existing files in directory
-              const existingFiles = fs.readdirSync(dir).filter(f => f.endsWith('.mp3'));
-              
-              // Extract numbers from files that match our pattern
-              const usedNumbers = new Set();
-              const nameWithoutExt = path.parse(finalFilename).name;
-              
-              // Create regex to match the pattern - replace the number with a capture group
-              let pattern = nameWithoutExt.replace(/\d+/, '(\\d+)');
-              pattern = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // Escape special regex chars
-              pattern = pattern.replace('\\(\\\\d\\+\\)', '(\\d+)'); // Restore the number capture group
-              const regex = new RegExp(`^${pattern}$`);
-              
-              existingFiles.forEach(file => {
-                const fileNameOnly = path.parse(file).name;
-                const match = fileNameOnly.match(regex);
-                if (match && match[1]) {
-                  usedNumbers.add(parseInt(match[1]));
-                }
-              });
-              
-              // Find the next available number
-              let nextNumber = rule.startNumber;
-              while (usedNumbers.has(nextNumber)) {
-                nextNumber++;
+      // Update metadata fields
+      if (match.newArtist !== match.originalArtist) {
+        tags.artist = match.newArtist;
+      }
+      if (match.newTitle !== match.originalTitle) {
+        tags.title = match.newTitle;
+      }
+      if (match.newAlbum !== match.originalAlbum) {
+        tags.album = match.newAlbum;
+      }
+      
+      // Update track number if it's different from current
+      const newTrackNumber = match.variables.number;
+      if (newTrackNumber && tags.trackNumber !== newTrackNumber.toString()) {
+        tags.trackNumber = newTrackNumber.toString();
+      }
+
+      // Write updated metadata with error handling
+      try {
+        NodeID3.write(tags, match.originalPath);
+      } catch (writeError) {
+        console.error(`Error writing metadata to ${match.originalFilename}:`, writeError);
+        results.push({
+          filename: match.originalFilename,
+          success: false,
+          error: 'Cannot write MP3 metadata - file may be read-only or corrupted'
+        });
+        continue;
+      }
+
+      // Rename file if filename template was provided
+      if (match.newFilename !== match.originalFilename) {
+        const dir = path.dirname(match.originalPath);
+        let newPath = path.join(dir, match.newFilename);
+        let finalFilename = match.newFilename;
+
+        // Handle filename conflicts by finding next available number in sequence
+        if (fs.existsSync(newPath)) {
+          // Check if the filename template uses numbering
+          const rule = namingRules.find(r => r.id === match.ruleId);
+          if (rule && rule.filenameTemplate && rule.filenameTemplate.includes('{number')) {
+            // Extract the base pattern from the filename (everything except the number)
+            const originalNumber = match.variables.number;
+
+            // Find all existing files in directory
+            const existingFiles = fs.readdirSync(dir).filter(f => f.endsWith('.mp3'));
+
+            // Extract numbers from files that match our pattern
+            const usedNumbers = new Set();
+            const nameWithoutExt = path.parse(finalFilename).name;
+
+            // Create regex to match the pattern - replace the number with a capture group
+            let pattern = nameWithoutExt.replace(/\d+/, '(\\d+)');
+            pattern = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // Escape special regex chars
+            pattern = pattern.replace('\\(\\\\d\\+\\)', '(\\d+)'); // Restore the number capture group
+            const regex = new RegExp(`^${pattern}$`);
+
+            existingFiles.forEach(file => {
+              const fileNameOnly = path.parse(file).name;
+              const match = fileNameOnly.match(regex);
+              if (match && match[1]) {
+                usedNumbers.add(parseInt(match[1]));
               }
-              
-              // Regenerate filename with the next available number
-              const newVariables = { ...match.variables, number: nextNumber };
-              const processedTemplate = processTemplate(rule.filenameTemplate, newVariables);
-              finalFilename = processedTemplate + '.mp3';
-              newPath = path.join(dir, finalFilename);
-              
-              console.log(`Filename conflict resolved: ${match.newFilename} -> ${finalFilename}`);
-            } else {
-              // No numbering in template, skip rename to avoid conflict
-              console.warn(`Target filename already exists: ${match.newFilename}`);
-              results.push({
-                filename: match.originalFilename,
-                success: true,
-                warning: 'Metadata updated but file rename skipped - target filename already exists',
-                newFilename: match.originalFilename,
-                changes: {
-                  artist: match.newArtist,
-                  title: match.newTitle,
-                  album: match.newAlbum
-                }
-              });
-              updated++;
-              continue;
+            });
+
+            // Find the next available number
+            let nextNumber = rule.startNumber;
+            while (usedNumbers.has(nextNumber)) {
+              nextNumber++;
             }
-          }
-          
-          try {
-            fs.renameSync(match.originalPath, newPath);
-            // Update the result with the actual final filename used
-            match.newFilename = finalFilename;
-          } catch (renameError) {
-            console.error(`Error renaming ${match.originalFilename}:`, renameError);
-            // Metadata was updated successfully, but rename failed
+
+            // Regenerate filename with the next available number
+            const newVariables = { ...match.variables, number: nextNumber };
+            const processedTemplate = processTemplate(rule.filenameTemplate, newVariables);
+            finalFilename = processedTemplate + '.mp3';
+            newPath = path.join(dir, finalFilename);
+
+            console.log(`Filename conflict resolved: ${match.newFilename} -> ${finalFilename}`);
+          } else {
+            // No numbering in template, skip rename to avoid conflict
+            console.warn(`Target filename already exists: ${match.newFilename}`);
             results.push({
               filename: match.originalFilename,
               success: true,
-              warning: 'Metadata updated but file rename failed: ' + renameError.message,
-              newFilename: match.originalFilename, // Keep original name
+              warning: 'Metadata updated but file rename skipped - target filename already exists',
+              newFilename: match.originalFilename,
               changes: {
                 artist: match.newArtist,
                 title: match.newTitle,
@@ -459,34 +575,62 @@ ipcMain.handle('apply-naming-changes', async (event, namingRules, filesData) => 
             continue;
           }
         }
-        
-        updated++;
-        results.push({
-          filename: match.originalFilename,
-          success: true,
-          newFilename: match.newFilename,
-          changes: {
-            artist: match.newArtist,
-            title: match.newTitle,
-            album: match.newAlbum
-          }
-        });
-        
-      } catch (error) {
-        console.error(`Error updating ${match.originalFilename}:`, error);
-        results.push({
-          filename: match.originalFilename,
-          success: false,
-          error: error.message
-        });
+
+        try {
+          fs.renameSync(match.originalPath, newPath);
+          // Update the result with the actual final filename used
+          match.newFilename = finalFilename;
+        } catch (renameError) {
+          console.error(`Error renaming ${match.originalFilename}:`, renameError);
+          // Metadata was updated successfully, but rename failed
+          results.push({
+            filename: match.originalFilename,
+            success: true,
+            warning: 'Metadata updated but file rename failed: ' + renameError.message,
+            newFilename: match.originalFilename, // Keep original name
+            changes: {
+              artist: match.newArtist,
+              title: match.newTitle,
+              album: match.newAlbum
+            }
+          });
+          updated++;
+          continue;
+        }
       }
+
+      updated++;
+      results.push({
+        filename: match.originalFilename,
+        success: true,
+        newFilename: match.newFilename,
+        changes: {
+          artist: match.newArtist,
+          title: match.newTitle,
+          album: match.newAlbum
+        }
+      });
+
+    } catch (error) {
+      console.error(`Error updating ${match.originalFilename}:`, error);
+      results.push({
+        filename: match.originalFilename,
+        success: false,
+        error: error.message
+      });
     }
-    
-    return { updated, results };
-  } catch (error) {
-    console.error('Error applying naming changes:', error);
-    throw error;
   }
+
+  sendNamingProgress('complete', `File updates complete! Updated ${updated} files`, namingRules.length, namingRules.length, `${results.length} files processed`);
+  namingState.isRunning = false;
+
+  return { updated, results };
+} catch (error) {
+  sendNamingProgress('error', `Error during file updates: ${error.message}`, 0, 0, error.stack);
+  namingState.isRunning = false;
+  console.error('Error applying naming changes:', error);
+  throw error;
+}
 });
 
 // Save and Load Naming Rules functionality
@@ -505,7 +649,7 @@ ipcMain.handle('save-naming-rules', async (event, rulesData) => {
     if (!result.canceled && result.filePath) {
       const jsonString = JSON.stringify(rulesData, null, 2);
       fs.writeFileSync(result.filePath, jsonString, 'utf8');
-      
+
       return {
         success: true,
         filePath: result.filePath
@@ -536,7 +680,7 @@ ipcMain.handle('load-naming-rules', async () => {
 
     if (!result.canceled && result.filePaths.length > 0) {
       const filePath = result.filePaths[0];
-      
+
       if (!fs.existsSync(filePath)) {
         throw new Error('File not found: ' + filePath);
       }
@@ -564,22 +708,22 @@ ipcMain.handle('load-naming-rules', async () => {
 // Helper function to process template strings
 function processTemplate(template, variables) {
   if (!template) return '';
-  
+
   let result = template;
-  
+
   // Replace variables like {artist}, {title}, etc.
   Object.keys(variables).forEach(key => {
     const regex = new RegExp(`\\{${key}\\}`, 'g');
     let value = variables[key];
-    
+
     // Special handling for genre in filenames - convert semicolons to commas
     if (key === 'genre' && value && typeof value === 'string') {
       value = value.replace(/;/g, ',');
     }
-    
+
     result = result.replace(regex, value);
   });
-  
+
   // Handle numbered formatting like {number:03d}
   const numberMatch = result.match(/\{number:(\d+)d\}/);
   if (numberMatch) {
@@ -587,7 +731,7 @@ function processTemplate(template, variables) {
     const paddedNumber = variables.number.toString().padStart(padding, '0');
     result = result.replace(/\{number:\d+d\}/, paddedNumber);
   }
-  
+
   return result;
 }
 
@@ -650,8 +794,14 @@ function hasGenreAndLyrics(filePath) {
   try {
     const tags = NodeID3.read(filePath);
     const hasGenre = tags.genre && tags.genre.trim().length > 0;
-    const hasLyrics = tags.unsynchronisedLyrics && tags.unsynchronisedLyrics.text && tags.unsynchronisedLyrics.text.trim().length > 0;
-    return hasGenre && hasLyrics;
+    const hasLyrics = tags.unsynchronisedLyrics &&
+      tags.unsynchronisedLyrics.text &&
+      tags.unsynchronisedLyrics.text.trim().length > 0;
+
+    // Consider [Instrumental] as valid "lyrics" to prevent re-scraping instrumental tracks
+    const isMarkedInstrumental = hasLyrics && tags.unsynchronisedLyrics.text.trim() === '[Instrumental]';
+
+    return hasGenre && (hasLyrics || isMarkedInstrumental);
   } catch (error) {
     console.error('Error checking metadata:', error.message);
     return false;
@@ -747,6 +897,15 @@ async function scrapeSunoUrl(browser, url, filePath) {
           text: songData.lyrics.lyrics
         };
         hasUpdates = true;
+      } else if (songData.genres.found) {
+        // If we found genre info but no lyrics, mark as instrumental
+        // This prevents re-scraping the same file repeatedly
+        updateTags.unsynchronisedLyrics = {
+          language: 'eng',
+          text: '[Instrumental]'
+        };
+        hasUpdates = true;
+        sendScrapingLog('info', `No lyrics found, marked as instrumental`, path.basename(filePath));
       }
 
       if (hasUpdates) {
@@ -789,7 +948,7 @@ ipcMain.handle('start-scraping', async (event, folderPath) => {
     // Get all MP3 files
     const files = fs.readdirSync(folderPath);
     const mp3Files = files.filter(file => file.toLowerCase().endsWith('.mp3'));
-    
+
     scraperState.totalFiles = mp3Files.length;
     scraperState.processedFiles = 0;
     scraperState.successfulFiles = 0;
@@ -802,7 +961,7 @@ ipcMain.handle('start-scraping', async (event, folderPath) => {
 
     // Create browser for scraping
     scraperState.browser = await puppeteer.launch({ headless: false });
-    
+
     // Process files
     for (let i = 0; i < mp3Files.length && scraperState.isRunning; i++) {
       const fileName = mp3Files[i];
@@ -832,7 +991,7 @@ ipcMain.handle('start-scraping', async (event, folderPath) => {
       if (sunoUrl && sunoUrl.includes('suno.com')) {
         try {
           const scrapedData = await scrapeSunoUrl(scraperState.browser, sunoUrl, fullPath);
-          
+
           if (validateScrapedData(scrapedData)) {
             scraperState.successfulFiles++;
           } else {
@@ -865,12 +1024,12 @@ ipcMain.handle('start-scraping', async (event, folderPath) => {
     }
 
     scraperState.isRunning = false;
-    
+
     sendScrapingLog('info', `Session complete! Processed: ${scraperState.successfulFiles}, Errors: ${scraperState.errorFiles}, Skipped: ${scraperState.skippedFiles}`);
     sendScrapingProgress();
-    
-    return { 
-      success: true, 
+
+    return {
+      success: true,
       stats: {
         total: scraperState.totalFiles,
         processed: scraperState.processedFiles,
@@ -894,7 +1053,7 @@ ipcMain.handle('start-scraping', async (event, folderPath) => {
 // IPC handler to stop scraping
 ipcMain.handle('stop-scraping', async () => {
   scraperState.isRunning = false;
-  
+
   if (scraperState.browser) {
     try {
       await scraperState.browser.close();
@@ -904,7 +1063,7 @@ ipcMain.handle('stop-scraping', async () => {
       console.error('Error stopping browser:', error);
     }
   }
-  
+
   sendScrapingProgress();
   return { success: true };
 });

@@ -11,6 +11,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveNamingRules: (rulesData) => ipcRenderer.invoke('save-naming-rules', rulesData),
   loadNamingRules: () => ipcRenderer.invoke('load-naming-rules'),
   
+  // Naming progress listeners
+  onNamingProgress: (callback) => ipcRenderer.on('naming-progress', callback),
+  removeNamingListeners: () => {
+    ipcRenderer.removeAllListeners('naming-progress');
+  },
+  
   // Scraper IPC methods
   startScraping: (folderPath) => ipcRenderer.invoke('start-scraping', folderPath),
   stopScraping: () => ipcRenderer.invoke('stop-scraping'),

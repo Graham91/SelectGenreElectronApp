@@ -223,6 +223,34 @@
       </div>
     </div>
     
+    <!-- Progress Modal for Naming Operations -->
+    <div id="namingProgressOverlay" class="progress-overlay" style="display: none;">
+      <div class="progress-modal">
+        <div class="progress-header">
+          <h3 id="progressTitle">Processing Naming Rules</h3>
+        </div>
+        <div class="progress-content">
+          <div class="progress-phase">
+            <strong id="progressPhase">Initializing...</strong>
+          </div>
+          <div class="progress-bar-container">
+            <div class="progress-bar">
+              <div id="progressBarFill" class="progress-bar-fill"></div>
+            </div>
+            <span id="progressPercent">0%</span>
+          </div>
+          <div class="progress-details">
+            <div id="progressMessage">Starting analysis...</div>
+            <div id="progressDetails" class="progress-details-text"></div>
+          </div>
+          <div class="progress-log">
+            <div class="progress-log-header">Activity Log:</div>
+            <div id="progressLogContent" class="progress-log-content"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <script>
       // Custom Alert Function - replaces native alert() to prevent Electron focus issues
       window.customAlert = function(message, title = 'Alert') {
@@ -1322,6 +1350,66 @@
         }
       };
 
+      // Progress Modal Functions
+      window.showNamingProgress = function() {
+        document.getElementById('namingProgressOverlay').style.display = 'flex';
+        document.getElementById('progressLogContent').innerHTML = '';
+        document.getElementById('progressBarFill').style.width = '0%';
+        document.getElementById('progressPercent').textContent = '0%';
+      };
+
+      window.hideNamingProgress = function() {
+        document.getElementById('namingProgressOverlay').style.display = 'none';
+      };
+
+      window.updateNamingProgress = function(data) {
+        const phaseElement = document.getElementById('progressPhase');
+        const messageElement = document.getElementById('progressMessage');
+        const detailsElement = document.getElementById('progressDetails');
+        const progressFill = document.getElementById('progressBarFill');
+        const progressPercent = document.getElementById('progressPercent');
+        const logContent = document.getElementById('progressLogContent');
+        
+        // Update phase
+        phaseElement.textContent = data.phase.charAt(0).toUpperCase() + data.phase.slice(1);
+        
+        // Update message
+        messageElement.textContent = data.message;
+        
+        // Update details
+        detailsElement.textContent = data.details || '';
+        
+        // Update progress bar
+        if (data.totalSteps > 0) {
+          const percent = Math.round((data.currentStep / data.totalSteps) * 100);
+          progressFill.style.width = percent + '%';
+          progressPercent.textContent = percent + '%';
+        }
+        
+        // Add log entry
+        const logEntry = document.createElement('div');
+        logEntry.className = 'progress-log-entry ' + data.phase;
+        const timestamp = new Date().toLocaleTimeString();
+        logEntry.textContent = `[${timestamp}] ${data.phase.toUpperCase()}: ${data.message}`;
+        if (data.details) {
+          logEntry.textContent += ` - ${data.details}`;
+        }
+        logContent.appendChild(logEntry);
+        logContent.scrollTop = logContent.scrollHeight;
+      };
+
+      // Set up progress listener
+      window.electronAPI.onNamingProgress((event, data) => {
+        updateNamingProgress(data);
+        
+        // Auto-hide on completion or error
+        if (data.phase === 'complete' || data.phase === 'error') {
+          setTimeout(() => {
+            hideNamingProgress();
+          }, 2000); // Hide after 2 seconds
+        }
+      });
+
       window.previewNamingChanges = function() {
         if (!mp3Data || mp3Data.length === 0) {
           customAlert('Please select a folder and load MP3 files first.');
@@ -1333,10 +1421,15 @@
           return;
         }
         
+        // Show progress modal
+        showNamingProgress();
+        
         window.electronAPI.previewNamingChanges(namingRules, mp3Data).then(result => {
           displayNamingPreview(result);
+          // Progress modal will auto-hide when complete event is received
         }).catch(error => {
           console.error('Error previewing naming changes:', error);
+          hideNamingProgress();
           customAlert('Error previewing changes: ' + error.message, 'Error');
         });
       };
@@ -1356,6 +1449,9 @@
           return;
         }
         
+        // Show progress modal
+        showNamingProgress();
+        
         window.electronAPI.applyNamingChanges(namingRules, mp3Data).then(result => {
           customAlert('Successfully updated ' + result.updated + ' files!', 'Success');
           // Reload the file data
@@ -1370,8 +1466,10 @@
             window.displayGenreToggles();
             window.updateStats();
           });
+          // Progress modal will auto-hide when complete event is received
         }).catch(error => {
           console.error('Error applying naming changes:', error);
+          hideNamingProgress();
           customAlert('Error applying changes: ' + error.message, 'Error');
         });
       };

@@ -1506,3 +1506,163 @@ tbody tr.changed .action-text {
   color: #856404;
   font-weight: 500;
 }
+
+/* Progress Modal Styles */
+.progress-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.7);
+  z-index: 10001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.progress-modal {
+  background: white;
+  border-radius: 12px;
+  width: 600px;
+  max-width: 90%;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  animation: progressFadeIn 0.3s ease-out;
+}
+
+@keyframes progressFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.progress-header {
+  padding: 24px 24px 16px 24px;
+  border-bottom: 2px solid #e9ecef;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-radius: 12px 12px 0 0;
+}
+
+.progress-header h3 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.progress-content {
+  padding: 24px;
+}
+
+.progress-phase {
+  margin-bottom: 16px;
+  font-size: 16px;
+  color: #495057;
+}
+
+.progress-bar-container {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.progress-bar {
+  flex: 1;
+  height: 12px;
+  background-color: #e9ecef;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #28a745, #20c997);
+  border-radius: 6px;
+  transition: width 0.3s ease;
+  width: 0%;
+}
+
+#progressPercent {
+  font-weight: 600;
+  color: #495057;
+  min-width: 45px;
+}
+
+.progress-details {
+  margin-bottom: 20px;
+}
+
+#progressMessage {
+  font-size: 14px;
+  color: #6c757d;
+  margin-bottom: 8px;
+}
+
+.progress-details-text {
+  font-size: 12px;
+  color: #868e96;
+  font-style: italic;
+}
+
+.progress-log {
+  border-top: 1px solid #dee2e6;
+  padding-top: 16px;
+}
+
+.progress-log-header {
+  font-size: 14px;
+  font-weight: 600;
+  color: #495057;
+  margin-bottom: 8px;
+}
+
+.progress-log-content {
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 6px;
+  padding: 12px;
+  max-height: 200px;
+  overflow-y: auto;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.progress-log-entry {
+  margin-bottom: 4px;
+  color: #495057;
+}
+
+.progress-log-entry.phase {
+  color: #007bff;
+  font-weight: 600;
+}
+
+.progress-log-entry.success {
+  color: #28a745;
+}
+
+.progress-log-entry.warning {
+  color: #ffc107;
+}
+
+.progress-log-entry.error {
+  color: #dc3545;
+}
+
+@media (max-width: 768px) {
+  .progress-modal {
+    width: 95%;
+    margin: 0 10px;
+  }
+  
+  .progress-content {
+    padding: 16px;
+  }
+}
