@@ -183,14 +183,18 @@ ipcMain.handle('preview-naming-changes', async (event, namingRules, filesData) =
 
     sendNamingProgress('starting', 'Initializing preview analysis...', 0, namingRules.length);
 
-    const results = {
-      totalMatches: 0,
-      matches: []
-    };
+    // First, collect ALL matches from ALL rules
+    const allMatches = [];
+    const albumGroupsMap = new Map(); // albumName -> array of entries
+    const processedFiles = new Set(); // Track files already processed to prevent duplicates
 
     for (let ruleIndex = 0; ruleIndex < namingRules.length; ruleIndex++) {
       const rule = namingRules[ruleIndex];
       sendNamingProgress('processing', `Processing rule ${ruleIndex + 1}: ${rule.albumTemplate || 'Unnamed Rule'}`, ruleIndex + 1, namingRules.length);
+      
+      // Track files processed within this specific rule to prevent duplicates
+      const ruleProcessedFiles = new Set();
+      
       // Support both old format (lyricSearch) and new format (lyricSearches)
       let lyricSearches = rule.lyricSearches || [];
       if (rule.lyricSearch && !lyricSearches.length) {
@@ -201,10 +205,18 @@ ipcMain.handle('preview-naming-changes', async (event, namingRules, filesData) =
       const validSearches = lyricSearches.filter(search => search && search.trim() !== '');
       if (validSearches.length === 0) continue;
 
-      // Simple approach: collect files by album and number them sequentially
-      const albumFilesMap = new Map(); // album -> array of files
-      // Collect files that match this rule, grouped by album
+      // Collect files that match this rule
       for (const file of filesData) {
+        // Skip files already processed by previous rules
+        if (processedFiles.has(file.filePath)) {
+          continue;
+        }
+
+        // Skip files already processed within this specific rule
+        if (ruleProcessedFiles.has(file.filePath)) {
+          continue;
+        }
+
         // Check if lyrics contain ANY of the search texts
         const lyrics = file.lyrics || '';
         const lyricsLower = lyrics.toLowerCase();
@@ -218,9 +230,9 @@ ipcMain.handle('preview-naming-changes', async (event, namingRules, filesData) =
         }
 
         if (foundMatch) {
-          // Generate album name for this file
+          // Generate variables for this file
           const variables = {
-            number: 1, // placeholder
+            number: 1, // placeholder - will be set later
             artist: file.artist || 'Unknown Artist',
             title: file.title || 'Unknown Title',
             album: file.album || 'Unknown Album',
@@ -228,80 +240,164 @@ ipcMain.handle('preview-naming-changes', async (event, namingRules, filesData) =
             year: file.year || new Date().getFullYear()
           };
 
-          const targetAlbum = processTemplate(rule.albumTemplate || '{album}', variables);
+          // Use rule id as the album group key so each rule creates its own album
+          const targetAlbum = `RULE_${rule.id}`;
 
-          // Add file to album group
-          if (!albumFilesMap.has(targetAlbum)) {
-            albumFilesMap.set(targetAlbum, []);
+          const matchEntry = {
+            file,
+            variables,
+            targetAlbum,
+            rule,
+            ruleId: rule.id
+          };
+
+          allMatches.push(matchEntry);
+
+          // Mark file as processed to prevent duplicates across all rules
+          processedFiles.add(file.filePath);
+
+          // Mark file as processed within this specific rule
+          ruleProcessedFiles.add(file.filePath);
+
+          // Group by rule (album) for numbering
+          if (!albumGroupsMap.has(targetAlbum)) {
+            albumGroupsMap.set(targetAlbum, []);
           }
-          albumFilesMap.get(targetAlbum).push({ file, variables, targetAlbum });
+          albumGroupsMap.get(targetAlbum).push(matchEntry);
         }
-      }
-
-      // Process each album group and assign track numbers only to files that need them
-      for (const [albumName, albumFiles] of albumFilesMap) {
-        // First, check existing track numbers for files in this album
-        const existingTrackNumbers = new Set();
-        let highestTrackNumber = 0;
-        
-        albumFiles.forEach(entry => {
-          const existingTrackNumber = parseInt(entry.file.trackNumber) || 0;
-          if (existingTrackNumber > 0) {
-            existingTrackNumbers.add(existingTrackNumber);
-            highestTrackNumber = Math.max(highestTrackNumber, existingTrackNumber);
-          }
-        });
-        
-        // Sort files consistently (by title) for predictable numbering
-        albumFiles.sort((a, b) => (a.file.title || '').localeCompare(b.file.title || ''));
-        
-        // Assign track numbers  
-        let nextAvailableNumber = Math.max(highestTrackNumber + 1, rule.startNumber || 1);
-        
-        albumFiles.forEach((entry) => {
-          const existingTrackNumber = parseInt(entry.file.trackNumber) || 0;
-          
-          if (existingTrackNumber > 0) {
-            // Keep existing track number
-            entry.variables.number = existingTrackNumber;
-            console.log(`[PREVIEW] Keeping existing track number ${existingTrackNumber} for: ${entry.file.title}`);
-          } else {
-            // Assign new track number
-            entry.variables.number = nextAvailableNumber;
-            console.log(`[PREVIEW] Assigning new track number ${nextAvailableNumber} to: ${entry.file.title}`);
-            nextAvailableNumber++;
-          }
-
-          // Process templates with final assigned number
-          const newArtist = processTemplate(rule.artistTemplate, entry.variables);
-          const newTitle = processTemplate(rule.songTemplate, entry.variables);
-          const newAlbum = processTemplate(rule.albumTemplate, entry.variables);
-          const newFilename = processTemplate(rule.filenameTemplate, entry.variables) + '.mp3';
-
-          results.matches.push({
-            originalFilename: entry.file.filename,
-            originalPath: entry.file.filePath,
-            newFilename: newFilename || entry.file.filename,
-            newArtist: newArtist || entry.file.artist,
-            newTitle: newTitle || entry.file.title,
-            newAlbum: newAlbum || entry.file.album,
-            originalArtist: entry.file.artist,
-            originalTitle: entry.file.title,
-            originalAlbum: entry.file.album,
-            ruleId: rule.id,
-            variables: entry.variables
-          });
-        });
-
-        console.log(`[PREVIEW] Album "${albumName}": processed ${albumFiles.length} files (highest existing: ${highestTrackNumber}, next available: ${nextAvailableNumber})`);
       }
     }
 
-    results.totalMatches = results.matches.length;
-    sendNamingProgress('complete', `Analysis complete! Found ${results.totalMatches} total matches`, namingRules.length, namingRules.length, `${results.matches.length} files will be processed`);
-    namingState.isRunning = false;
+        // Now apply numbering logic to all collected matches (same as apply handler)
+        const results = {
+          totalMatches: 0,
+          matches: []
+        };
 
-    return results;
+        for (const [albumName, albumFiles] of albumGroupsMap) {
+          // Split into songs with and without track numbers
+          let withTrack = [];
+          let withoutTrack = [];
+          const trackNumberMap = new Map();
+          const duplicates = [];
+
+          albumFiles.forEach(entry => {
+            const trackNum = parseInt(entry.file.trackNumber);
+            if (trackNum > 0) {
+              if (trackNumberMap.has(trackNum)) {
+                // Duplicate track number, move to extras
+                duplicates.push(entry);
+              } else {
+                trackNumberMap.set(trackNum, entry);
+                withTrack.push(entry);
+              }
+            } else {
+              withoutTrack.push(entry);
+            }
+          });
+
+          // Add duplicates to withoutTrack for reassignment
+          withoutTrack = withoutTrack.concat(duplicates);
+
+          // Find the highest track number present
+          let highestTrackNumber = 0;
+          for (const n of trackNumberMap.keys()) {
+            if (n > highestTrackNumber) highestTrackNumber = n;
+          }
+
+          // Assign track numbers starting from 1
+          let currentTrack = 1;
+          let assigned = new Set();
+          while (withTrack.length + withoutTrack.length > 0) {
+            if (trackNumberMap.has(currentTrack)) {
+              // Song with this track number exists
+              const entry = trackNumberMap.get(currentTrack);
+              entry.variables.number = currentTrack;
+              // Update all properties using rules
+              const newArtist = processTemplate(entry.rule.artistTemplate, entry.variables);
+              const newTitle = processTemplate(entry.rule.songTemplate, entry.variables);
+              const newAlbum = processTemplate(entry.rule.albumTemplate, entry.variables);
+              const newFilename = processTemplate(entry.rule.filenameTemplate, entry.variables) + '.mp3';
+              results.matches.push({
+                originalFilename: entry.file.filename,
+                originalPath: entry.file.filePath,
+                newFilename: newFilename || entry.file.filename,
+                newArtist: newArtist || entry.file.artist,
+                newTitle: newTitle || entry.file.title,
+                newAlbum: newAlbum || entry.file.album,
+                originalArtist: entry.file.artist,
+                originalTitle: entry.file.title,
+                originalAlbum: entry.file.album,
+                ruleId: entry.rule.id,
+                variables: entry.variables
+              });
+              assigned.add(entry);
+              withTrack = withTrack.filter(e => e !== entry);
+            } else if (withoutTrack.length > 0) {
+              // Assign this track number to a song without a track number
+              const entry = withoutTrack.shift();
+              entry.variables.number = currentTrack;
+              const newArtist = processTemplate(entry.rule.artistTemplate, entry.variables);
+              const newTitle = processTemplate(entry.rule.songTemplate, entry.variables);
+              const newAlbum = processTemplate(entry.rule.albumTemplate, entry.variables);
+              const newFilename = processTemplate(entry.rule.filenameTemplate, entry.variables) + '.mp3';
+              results.matches.push({
+                originalFilename: entry.file.filename,
+                originalPath: entry.file.filePath,
+                newFilename: newFilename || entry.file.filename,
+                newArtist: newArtist || entry.file.artist,
+                newTitle: newTitle || entry.file.title,
+                newAlbum: newAlbum || entry.file.album,
+                originalArtist: entry.file.artist,
+                originalTitle: entry.file.title,
+                originalAlbum: entry.file.album,
+                ruleId: entry.rule.id,
+                variables: entry.variables
+              });
+              assigned.add(entry);
+            } else if (withTrack.length > 0) {
+              // No unassigned songs left, reassign the song with the largest track number
+              let maxEntry = withTrack[0];
+              let maxNum = parseInt(maxEntry.file.trackNumber) || 0;
+              for (const entry of withTrack) {
+                const n = parseInt(entry.file.trackNumber) || 0;
+                if (n > maxNum) {
+                  maxNum = n;
+                  maxEntry = entry;
+                }
+              }
+              maxEntry.variables.number = currentTrack;
+              const newArtist = processTemplate(maxEntry.rule.artistTemplate, maxEntry.variables);
+              const newTitle = processTemplate(maxEntry.rule.songTemplate, maxEntry.variables);
+              const newAlbum = processTemplate(maxEntry.rule.albumTemplate, maxEntry.variables);
+              const newFilename = processTemplate(maxEntry.rule.filenameTemplate, maxEntry.variables) + '.mp3';
+              results.matches.push({
+                originalFilename: maxEntry.file.filename,
+                originalPath: maxEntry.file.filePath,
+                newFilename: newFilename || maxEntry.file.filename,
+                newArtist: newArtist || maxEntry.file.artist,
+                newTitle: newTitle || maxEntry.file.title,
+                newAlbum: newAlbum || maxEntry.file.album,
+                originalArtist: maxEntry.file.artist,
+                originalTitle: maxEntry.file.title,
+                originalAlbum: maxEntry.file.album,
+                ruleId: maxEntry.rule.id,
+                variables: maxEntry.variables
+              });
+              assigned.add(maxEntry);
+              withTrack = withTrack.filter(e => e !== maxEntry);
+            }
+            currentTrack++;
+          }
+
+          console.log(`[PREVIEW] Album "${albumName}": processed ${assigned.size} files (highest existing: ${highestTrackNumber})`);
+        }
+        results.totalMatches = results.matches.length;
+
+        sendNamingProgress('complete', `Analysis complete! Found ${results.totalMatches} total matches`, namingRules.length, namingRules.length, `${results.matches.length} files will be processed`);
+        namingState.isRunning = false;
+
+        return results;
   } catch (error) {
     sendNamingProgress('error', `Error during analysis: ${error.message}`, 0, 0, error.stack);
     namingState.isRunning = false;
@@ -318,15 +414,18 @@ ipcMain.handle('apply-naming-changes', async (event, namingRules, filesData) => 
 
     sendNamingProgress('starting', 'Initializing file updates...', 0, namingRules.length);
 
-    // Generate preview data directly (don't register another handler)
-    const previewResult = {
-      totalMatches: 0,
-      matches: []
-    };
+    // First, collect ALL matches from ALL rules
+    const allMatches = [];
+    const albumGroupsMap = new Map(); // albumName -> array of entries
+    const processedFiles = new Set(); // Track files already processed to prevent duplicates
 
     for (let ruleIndex = 0; ruleIndex < namingRules.length; ruleIndex++) {
       const rule = namingRules[ruleIndex];
       sendNamingProgress('processing', `Processing rule ${ruleIndex + 1}: ${rule.albumTemplate || 'Unnamed Rule'}`, ruleIndex + 1, namingRules.length);
+      
+      // Track files processed within this specific rule to prevent duplicates
+      const ruleProcessedFiles = new Set();
+      
       // Support both old format (lyricSearch) and new format (lyricSearches)
       let lyricSearches = rule.lyricSearches || [];
       if (rule.lyricSearch && !lyricSearches.length) {
@@ -337,11 +436,18 @@ ipcMain.handle('apply-naming-changes', async (event, namingRules, filesData) => 
       const validSearches = lyricSearches.filter(search => search && search.trim() !== '');
       if (validSearches.length === 0) continue;
 
-      // Simple approach: collect files by album and number them sequentially
-      const albumFilesMap = new Map(); // album -> array of files
-
-      // Collect files that match this rule, grouped by album
+      // Collect files that match this rule
       for (const file of filesData) {
+        // Skip files already processed by previous rules
+        if (processedFiles.has(file.filePath)) {
+          continue;
+        }
+
+        // Skip files already processed within this specific rule
+        if (ruleProcessedFiles.has(file.filePath)) {
+          continue;
+        }
+
         // Check if lyrics contain ANY of the search texts
         const lyrics = file.lyrics || '';
         const lyricsLower = lyrics.toLowerCase();
@@ -357,7 +463,7 @@ ipcMain.handle('apply-naming-changes', async (event, namingRules, filesData) => 
         if (foundMatch) {
           // Generate album name for this file
           const variables = {
-            number: 1, // placeholder
+            number: 1, // placeholder - will be set later
             artist: file.artist || 'Unknown Artist',
             title: file.title || 'Unknown Title',
             album: file.album || 'Unknown Album',
@@ -367,54 +473,92 @@ ipcMain.handle('apply-naming-changes', async (event, namingRules, filesData) => 
 
           const targetAlbum = processTemplate(rule.albumTemplate || '{album}', variables);
 
-          // Add file to album group
-          if (!albumFilesMap.has(targetAlbum)) {
-            albumFilesMap.set(targetAlbum, []);
+          const matchEntry = {
+            file,
+            variables,
+            targetAlbum,
+            rule,
+            ruleId: rule.id
+          };
+
+          allMatches.push(matchEntry);
+
+          // Mark file as processed to prevent duplicates across all rules
+          processedFiles.add(file.filePath);
+
+          // Mark file as processed within this specific rule
+          ruleProcessedFiles.add(file.filePath);
+
+          // Group by album for numbering
+          if (!albumGroupsMap.has(targetAlbum)) {
+            albumGroupsMap.set(targetAlbum, []);
           }
-          albumFilesMap.get(targetAlbum).push({ file, variables, targetAlbum });
+          albumGroupsMap.get(targetAlbum).push(matchEntry);
+        }
+      }
+    }
+
+    // Now apply numbering logic to all collected matches
+    const previewResult = {
+      totalMatches: 0,
+      matches: []
+    };
+
+    // Process each album group and assign track numbers
+    for (const [albumName, albumFiles] of albumGroupsMap) {
+      // Group into with and without track numbers
+      let withTrack = [];
+      let withoutTrack = [];
+      const trackNumberMap = new Map();
+
+      // First, group and handle duplicates
+      albumFiles.forEach(entry => {
+        const trackNum = parseInt(entry.file.trackNumber);
+        if (trackNum > 0) {
+          if (!trackNumberMap.has(trackNum)) {
+            trackNumberMap.set(trackNum, [entry]);
+          } else {
+            trackNumberMap.get(trackNum).push(entry);
+          }
+        } else {
+          withoutTrack.push(entry);
+        }
+      });
+
+      // Move extras (duplicates) to withoutTrack
+      for (const [trackNum, entries] of trackNumberMap.entries()) {
+        if (entries.length > 1) {
+          // Keep one, move the rest
+          withTrack.push(entries[0]);
+          for (let i = 1; i < entries.length; i++) {
+            withoutTrack.push(entries[i]);
+          }
+        } else {
+          withTrack.push(entries[0]);
         }
       }
 
-      // Process each album group and assign track numbers only to files that need them
-      for (const [albumName, albumFiles] of albumFilesMap) {
-        // First, check existing track numbers for files in this album
-        const existingTrackNumbers = new Set();
-        let highestTrackNumber = 0;
-        
-        albumFiles.forEach(entry => {
-          const existingTrackNumber = parseInt(entry.file.trackNumber) || 0;
-          if (existingTrackNumber > 0) {
-            existingTrackNumbers.add(existingTrackNumber);
-            highestTrackNumber = Math.max(highestTrackNumber, existingTrackNumber);
-          }
-        });
-        
-        // Sort files consistently (by title) for predictable numbering
-        albumFiles.sort((a, b) => (a.file.title || '').localeCompare(b.file.title || ''));
-        
-        // Assign track numbers  
-        let nextAvailableNumber = Math.max(highestTrackNumber + 1, rule.startNumber || 1);
-        
-        albumFiles.forEach((entry) => {
-          const existingTrackNumber = parseInt(entry.file.trackNumber) || 0;
-          
-          if (existingTrackNumber > 0) {
-            // Keep existing track number
-            entry.variables.number = existingTrackNumber;
-            console.log(`[APPLY] Keeping existing track number ${existingTrackNumber} for: ${entry.file.title}`);
-          } else {
-            // Assign new track number
-            entry.variables.number = nextAvailableNumber;
-            console.log(`[APPLY] Assigning new track number ${nextAvailableNumber} to: ${entry.file.title}`);
-            nextAvailableNumber++;
-          }
+      // Find the highest track number present
+      let highestTrackNumber = 0;
+      for (const entry of withTrack) {
+        const n = parseInt(entry.file.trackNumber) || 0;
+        if (n > highestTrackNumber) highestTrackNumber = n;
+      }
 
-          // Process templates with final assigned number
-          const newArtist = processTemplate(rule.artistTemplate, entry.variables);
-          const newTitle = processTemplate(rule.songTemplate, entry.variables);
-          const newAlbum = processTemplate(rule.albumTemplate, entry.variables);
-          const newFilename = processTemplate(rule.filenameTemplate, entry.variables) + '.mp3';
-
+      // Assign track numbers starting from 1
+      let currentTrack = 1;
+      let assigned = new Set();
+      let totalToAssign = withTrack.length + withoutTrack.length;
+      while (assigned.size < totalToAssign) {
+        // 1. If a song with this track number exists, update it
+        let entry = withTrack.find(e => parseInt(e.file.trackNumber) === currentTrack);
+        if (entry) {
+          entry.variables.number = currentTrack;
+          // Update all properties using rules
+          const newArtist = processTemplate(entry.rule.artistTemplate, entry.variables);
+          const newTitle = processTemplate(entry.rule.songTemplate, entry.variables);
+          const newAlbum = processTemplate(entry.rule.albumTemplate, entry.variables);
+          const newFilename = processTemplate(entry.rule.filenameTemplate, entry.variables) + '.mp3';
           previewResult.matches.push({
             originalFilename: entry.file.filename,
             originalPath: entry.file.filePath,
@@ -425,13 +569,67 @@ ipcMain.handle('apply-naming-changes', async (event, namingRules, filesData) => 
             originalArtist: entry.file.artist,
             originalTitle: entry.file.title,
             originalAlbum: entry.file.album,
-            ruleId: rule.id,
+            ruleId: entry.rule.id,
             variables: entry.variables
           });
-        });
-
-        console.log(`[APPLY] Album "${albumName}": processed ${albumFiles.length} files (highest existing: ${highestTrackNumber}, next available: ${nextAvailableNumber})`);
+          assigned.add(entry);
+        } else if (withoutTrack.length > 0) {
+          // 2. Assign to a song without a track number
+          entry = withoutTrack.shift();
+          entry.variables.number = currentTrack;
+          const newArtist = processTemplate(entry.rule.artistTemplate, entry.variables);
+          const newTitle = processTemplate(entry.rule.songTemplate, entry.variables);
+          const newAlbum = processTemplate(entry.rule.albumTemplate, entry.variables);
+          const newFilename = processTemplate(entry.rule.filenameTemplate, entry.variables) + '.mp3';
+          previewResult.matches.push({
+            originalFilename: entry.file.filename,
+            originalPath: entry.file.filePath,
+            newFilename: newFilename || entry.file.filename,
+            newArtist: newArtist || entry.file.artist,
+            newTitle: newTitle || entry.file.title,
+            newAlbum: newAlbum || entry.file.album,
+            originalArtist: entry.file.artist,
+            originalTitle: entry.file.title,
+            originalAlbum: entry.file.album,
+            ruleId: entry.rule.id,
+            variables: entry.variables
+          });
+          assigned.add(entry);
+        } else if (withTrack.length > 0) {
+          // 3. No unassigned left, reassign the song with the largest track number
+          let maxEntry = withTrack[0];
+          let maxNum = parseInt(maxEntry.file.trackNumber) || 0;
+          for (const e of withTrack) {
+            const n = parseInt(e.file.trackNumber) || 0;
+            if (!assigned.has(e) && n > maxNum) {
+              maxNum = n;
+              maxEntry = e;
+            }
+          }
+          maxEntry.variables.number = currentTrack;
+          const newArtist = processTemplate(maxEntry.rule.artistTemplate, maxEntry.variables);
+          const newTitle = processTemplate(maxEntry.rule.songTemplate, maxEntry.variables);
+          const newAlbum = processTemplate(maxEntry.rule.albumTemplate, maxEntry.variables);
+          const newFilename = processTemplate(maxEntry.rule.filenameTemplate, maxEntry.variables) + '.mp3';
+          previewResult.matches.push({
+            originalFilename: maxEntry.file.filename,
+            originalPath: maxEntry.file.filePath,
+            newFilename: newFilename || maxEntry.file.filename,
+            newArtist: newArtist || maxEntry.file.artist,
+            newTitle: newTitle || maxEntry.file.title,
+            newAlbum: newAlbum || maxEntry.file.album,
+            originalArtist: maxEntry.file.artist,
+            originalTitle: maxEntry.file.title,
+            originalAlbum: maxEntry.file.album,
+            ruleId: maxEntry.rule.id,
+            variables: maxEntry.variables
+          });
+          assigned.add(maxEntry);
+        }
+        currentTrack++;
       }
+
+      console.log(`[APPLY] Album "${albumName}": processed ${assigned.size} files (highest existing: ${highestTrackNumber})`);
     }
     
     previewResult.totalMatches = previewResult.matches.length;
@@ -442,6 +640,7 @@ ipcMain.handle('apply-naming-changes', async (event, namingRules, filesData) => 
   sendNamingProgress('applying', `Updating ${previewResult.matches.length} files...`, 0, previewResult.matches.length);
 
   for (let fileIndex = 0; fileIndex < previewResult.matches.length; fileIndex++) {
+
     const match = previewResult.matches[fileIndex];
 
     // Send progress update every 5 files
@@ -515,65 +714,10 @@ ipcMain.handle('apply-naming-changes', async (event, namingRules, filesData) => 
         let newPath = path.join(dir, match.newFilename);
         let finalFilename = match.newFilename;
 
-        // Handle filename conflicts by finding next available number in sequence
+        // If the target filename exists, use Temp_ prefix
         if (fs.existsSync(newPath)) {
-          // Check if the filename template uses numbering
-          const rule = namingRules.find(r => r.id === match.ruleId);
-          if (rule && rule.filenameTemplate && rule.filenameTemplate.includes('{number')) {
-            // Extract the base pattern from the filename (everything except the number)
-            const originalNumber = match.variables.number;
-
-            // Find all existing files in directory
-            const existingFiles = fs.readdirSync(dir).filter(f => f.endsWith('.mp3'));
-
-            // Extract numbers from files that match our pattern
-            const usedNumbers = new Set();
-            const nameWithoutExt = path.parse(finalFilename).name;
-
-            // Create regex to match the pattern - replace the number with a capture group
-            let pattern = nameWithoutExt.replace(/\d+/, '(\\d+)');
-            pattern = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // Escape special regex chars
-            pattern = pattern.replace('\\(\\\\d\\+\\)', '(\\d+)'); // Restore the number capture group
-            const regex = new RegExp(`^${pattern}$`);
-
-            existingFiles.forEach(file => {
-              const fileNameOnly = path.parse(file).name;
-              const match = fileNameOnly.match(regex);
-              if (match && match[1]) {
-                usedNumbers.add(parseInt(match[1]));
-              }
-            });
-
-            // Find the next available number
-            let nextNumber = rule.startNumber;
-            while (usedNumbers.has(nextNumber)) {
-              nextNumber++;
-            }
-
-            // Regenerate filename with the next available number
-            const newVariables = { ...match.variables, number: nextNumber };
-            const processedTemplate = processTemplate(rule.filenameTemplate, newVariables);
-            finalFilename = processedTemplate + '.mp3';
-            newPath = path.join(dir, finalFilename);
-
-            console.log(`Filename conflict resolved: ${match.newFilename} -> ${finalFilename}`);
-          } else {
-            // No numbering in template, skip rename to avoid conflict
-            console.warn(`Target filename already exists: ${match.newFilename}`);
-            results.push({
-              filename: match.originalFilename,
-              success: true,
-              warning: 'Metadata updated but file rename skipped - target filename already exists',
-              newFilename: match.originalFilename,
-              changes: {
-                artist: match.newArtist,
-                title: match.newTitle,
-                album: match.newAlbum
-              }
-            });
-            updated++;
-            continue;
-          }
+          finalFilename = 'Temp_' + match.newFilename;
+          newPath = path.join(dir, finalFilename);
         }
 
         try {
@@ -618,6 +762,23 @@ ipcMain.handle('apply-naming-changes', async (event, namingRules, filesData) => 
         success: false,
         error: error.message
       });
+    }
+  }
+
+  // Second pass: rename Temp_ files to their final names
+  for (const match of previewResult.matches) {
+    if (match.newFilename && match.newFilename.startsWith('Temp_')) {
+      const dir = path.dirname(match.originalPath);
+      const tempPath = path.join(dir, match.newFilename);
+      const finalPath = path.join(dir, match.newFilename.replace(/^Temp_/, ''));
+      if (fs.existsSync(tempPath) && !fs.existsSync(finalPath)) {
+        try {
+          fs.renameSync(tempPath, finalPath);
+          match.newFilename = match.newFilename.replace(/^Temp_/, '');
+        } catch (renameError) {
+          console.error(`Error finalizing rename for ${tempPath}:`, renameError);
+        }
+      }
     }
   }
 
